@@ -1,0 +1,25 @@
+{
+  "llm": {
+    "provider": "openrouter",
+    "model": "anthropic/claude-3.5-sonnet",
+    "api_key": "YOUR-API-KEY-HERE"
+  },
+  "auth": {
+    "shared_secret": "change-this-to-a-random-secret-at-least-16-chars"
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8443
+  },
+  "ark": {
+    "map": "TheIsland",
+    "cluster_id": "",
+    "wild_dino_alert_enabled": true,
+    "wild_dino_alert_min_level": 30,
+    "wild_dino_alert_species": ["Giganotosaurus", "Titanosaur", "Megalodon", "Tusoteuthis", "Rex", "Spino"],
+    "tribe_member_auto_track": true,
+    "tribe_dino_limit": 500,
+    "ai_context_window": 50,
+    "ai_personality": "helpful_assistant"
+  }
+}
