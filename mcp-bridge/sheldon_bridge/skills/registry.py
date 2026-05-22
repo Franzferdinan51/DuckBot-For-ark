@@ -98,15 +98,23 @@ class SkillRegistry:
 
     Discovers skills from the skills/ directory at startup.
     Provides lookup by name, by trigger keyword, and by game event.
+
+    Skill Snapshot Versioning (openclaw pattern):
+        - Each skill has a version field
+        - Registry computes a combined hash of all skill versions
+        - Snapshot is cached and only refreshed when versions change
+        - This prevents stale skill data after updates
     """
 
     def __init__(self):
         self._skills: dict[str, Skill] = {}
         self._triggers: dict[str, list[str]] = {}  # trigger_word → [skill_names]
         self._event_handlers: dict[str, list[str]] = {}  # event_type → [skill_names]
+        self._snapshot_version: str = ""  # hash of all skill versions
+        self._snapshot_valid: bool = False
 
     def register(self, skill: Skill) -> None:
-        """Register a skill."""
+        """Register a skill and recompute snapshot version."""
         self._skills[skill.meta.name] = skill
         for trigger in skill.meta.triggers:
             if trigger not in self._triggers:
@@ -116,7 +124,14 @@ class SkillRegistry:
             if event not in self._event_handlers:
                 self._event_handlers[event] = []
             self._event_handlers[event].append(skill.meta.name)
-        logger.info(f"Registered skill: {skill.meta.name} (triggers={skill.meta.triggers})")
+
+        # Invalidate cached snapshot — new skill means version changed
+        self._snapshot_valid = False
+
+        logger.info(
+            f"Registered skill: {skill.meta.name} "
+            f"(triggers={skill.meta.triggers}, version={skill.meta.version})"
+        )
 
     def get(self, name: str) -> Skill | None:
         """Get a skill by name."""
@@ -206,6 +221,65 @@ class SkillRegistry:
 
             except Exception as e:
                 logger.error(f"Failed to load skill '{skill_name}': {e}")
+
+        # After all skills discovered, compute initial snapshot version
+        self._compute_snapshot_version()
+
+    def _compute_snapshot_version(self) -> str:
+        """Compute a hash of all skill versions to detect stale data.
+
+        Called after discover() and whenever a skill is registered.
+        The hash is stored in _snapshot_version and compared on each
+        agent run to detect if a refresh is needed.
+        """
+        import hashlib
+
+        # Collect all skill version strings
+        version_parts = []
+        for skill in self._skills.values():
+            version_parts.append(f"{skill.meta.name}:{skill.meta.version}")
+
+        # Sort for deterministic output
+        version_parts.sort()
+        combined = "|".join(version_parts).encode()
+
+        # SHA256 hash — truncated to 12 chars for readability
+        self._snapshot_version = hashlib.sha256(combined).hexdigest()[:12]
+        self._snapshot_valid = True
+
+        logger.info(f"Skill snapshot version: {self._snapshot_version} ({len(self._skills)} skills)")
+        return self._snapshot_version
+
+    def get_snapshot_version(self) -> str:
+        """Get current snapshot version, computing if needed."""
+        if not self._snapshot_valid:
+            self._compute_snapshot_version()
+        return self._snapshot_version
+
+    def is_snapshot_valid(self, expected_version: str) -> bool:
+        """Check if snapshot version matches expected (from session).
+
+        If the version loaded with a session doesn't match the current
+        registry version, the agent should rebuild its skill snapshot.
+        """
+        return self._snapshot_version == expected_version and self._snapshot_valid
+
+    def check_and_refresh(self, session_snapshot_version: str | None) -> bool:
+        """Check if skill snapshot is stale and needs refresh.
+
+        Returns True if snapshot is valid and matches session version.
+        Returns False if refresh is needed.
+
+        Call this at the start of each agent run (openclaw pattern).
+        """
+        if session_snapshot_version is None:
+            # No version stored — always refresh
+            return False
+
+        if not self._snapshot_valid:
+            self._compute_snapshot_version()
+
+        return self._snapshot_version == session_snapshot_version
 
 
 def _parse_skill_md(path: Path) -> SkillMetadata:

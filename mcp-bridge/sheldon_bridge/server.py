@@ -22,6 +22,8 @@ from aiohttp import web
 from sheldon_bridge.agent import Agent
 from sheldon_bridge.auth import PlayerContext, RateLimiter, TokenAuthenticator
 from sheldon_bridge.config import BridgeConfig
+from sheldon_bridge.hooks import HookContext, get_hook_registry, dispatch_hook
+from sheldon_bridge.intent import IntentClassifier, IntentType
 from sheldon_bridge.providers.llm import LLMProvider
 from sheldon_bridge.session import SessionManager
 from sheldon_bridge.tools.registry import ToolRegistry
@@ -74,6 +76,9 @@ class BridgeServer:
             registry=self.registry,
             rate_limiter=self.rate_limiter,
         )
+
+        # Intent classifier for fast routing
+        self._intent_classifier = IntentClassifier()
 
         # Track connected clients
         self._connections: dict[str, ServerConnection] = {}
@@ -221,7 +226,18 @@ class BridgeServer:
     async def _handle_player_message(
         self, msg: dict, session, websocket: ServerConnection
     ) -> None:
-        """Handle a player chat message — run the agentic loop."""
+        """Handle a player chat message — route through intent-based pipeline.
+
+        Intent-based routing (inspired by openclaw agent-command.ts):
+          HELP  → instant response, no LLM call needed
+          CHAT  → lightweight LLM call (no tools), fast response
+          QUERY → lightweight LLM call with knowledge tools
+          COMMAND → full agentic loop with tools (rate-limited per tier)
+          ACTION → full agentic loop (spawn, give, etc.)
+
+        This avoids burning LLM tokens on casual conversation while keeping
+        complex tasks in the full agent loop.
+        """
         text = msg.get("message", "").strip()
         if not text:
             return
@@ -238,30 +254,87 @@ class BridgeServer:
                 facing_yaw=msg.get("facing_yaw", 0.0),
             )
 
-        # Echo request_id from client (for server-side request tracking)
         request_id = msg.get("request_id")
 
-        # Send "thinking" indicator
-        thinking_msg = {"type": "thinking"}
-        if request_id is not None:
-            thinking_msg["request_id"] = request_id
-        await websocket.send(json.dumps(thinking_msg))
+        # ── Hook dispatch (openclaw plugin-hooks pattern) ───────────────
+        # Hooks run before the agent loop — high-priority hooks can short-circuit
+        # with instant responses (e.g., rate limiting, auth, high-confidence patterns)
+        hook_ctx = HookContext(
+            event="on_player_message_received",
+            player_id=session.player.player_id,
+            player_tier=session.player.tier,
+            tribe_id=session.player.tribe_id or "",
+            text=text,
+            display_name=session.player.display_name,
+        )
+        hook_result = await dispatch_hook("on_player_message_received", hook_ctx)
+        if hook_result.skipped:
+            reply = {"type": "reply", "message": hook_result.response}
+            if request_id is not None:
+                reply["request_id"] = request_id
+            await websocket.send(json.dumps(reply))
+            return  # Hook handled — skip intent-based routing
 
-        # Wrapper to tag stream tokens with request_id for routing
+        # ── Intent classification ─────────────────────────────────────────
+        intent = self._intent_classifier.classify(text)
+        logger.debug(
+            f"Intent for '{text[:40]}...': {intent.intent_type.value} "
+            f"(conf={intent.confidence:.2f}) entities={intent.entities}"
+        )
+
+        # ── Fast path: HELP ────────────────────────────────────────────────
+        if intent.intent_type == IntentType.HELP:
+            help_text = self._build_help_response(session.player.tier, intent)
+            reply = {"type": "reply", "message": help_text}
+            if request_id is not None:
+                reply["request_id"] = request_id
+            await websocket.send(json.dumps(reply))
+            return
+
+        # ── Fast path: CHAT (casual conversation, no tools) ────────────────
+        if intent.intent_type == IntentType.CHAT and intent.confidence >= 0.8:
+            reply_text = self._build_casual_response(text, session)
+            reply = {"type": "reply", "message": reply_text}
+            if request_id is not None:
+                reply["request_id"] = request_id
+            await websocket.send(json.dumps(reply))
+            return
+
+        # ── QUERY: lightweight LLM response (no tools, fast) ───────────────
+        if intent.intent_type == IntentType.QUERY:
+            await websocket.send(json.dumps({"type": "thinking"}))
+            if request_id is not None:
+                await websocket.send(json.dumps({"type": "thinking", "request_id": request_id}))
+
+            async def stream_send(msg: dict) -> None:
+                if request_id is not None:
+                    msg["request_id"] = request_id
+                await websocket.send(json.dumps(msg))
+
+            try:
+                result = await self._run_query_agent(session, text, intent, stream_send)
+                return  # reply handled inside
+            except Exception as e:
+                logger.error(f"Query agent failed: {e}")
+
+        # ── COMMAND / ACTION: full agentic loop ────────────────────────────
+        # Send thinking indicator
+        thinking = {"type": "thinking"}
+        if request_id is not None:
+            thinking["request_id"] = request_id
+        await websocket.send(json.dumps(thinking))
+
         async def stream_send(msg: dict) -> None:
             if request_id is not None:
                 msg["request_id"] = request_id
             await websocket.send(json.dumps(msg))
 
-        # Run the agentic loop (prefer streaming for instant-feel responses)
-        # Note: streaming sends tokens in-flight, no separate reply message sent
         try:
             result = await self.agent.run_streaming(session, text, stream_send)
         except Exception:
             # Fall back to regular non-streaming if streaming fails
             async with session.lock:
                 result = await self.agent.run(session, text)
-            # For non-streaming, send the final reply explicitly
             reply_msg = {
                 "type": "reply",
                 "message": result.response_text,
@@ -279,8 +352,6 @@ class BridgeServer:
             await websocket.send(json.dumps(reply_msg))
             return
 
-        # For streaming, stats are already reflected during token stream.
-        # Log summary to bridge log only (not sent as a message to widget).
         logger.info(
             f"[{session.player.display_name}] "
             f"'{text[:50]}...' → "
@@ -289,6 +360,94 @@ class BridgeServer:
             f"${result.total_cost:.4f}, "
             f"{result.duration_ms:.0f}ms"
         )
+
+    async def _run_query_agent(
+        self, session, text: str, intent, stream_send
+    ):
+        """Lightweight LLM response for QUERY intents — no tools needed."""
+        query_prompt = self._build_query_prompt(text, intent)
+        messages = [
+            {"role": "system", "content": session.system_prompt or ""},
+            *session.get_messages()[-6:],  # last few turns for context
+            {"role": "user", "content": text},
+        ]
+
+        full_response = ""
+        try:
+            async for token in self.llm.complete_streaming(messages, tools=None):
+                full_response += token
+                await stream_send({"type": "stream_token", "content": token})
+        except Exception as e:
+            logger.error(f"Query streaming failed: {e}")
+            full_response = "I'm having trouble answering that right now."
+
+        # Cache the response
+        try:
+            cache = await init_cache()
+            ctx_key = f"{session.player.tier}:{session.player.tribe_id or session.player.player_id}"
+            await cache.store(text, full_response, context_key=ctx_key)
+        except Exception:
+            pass  # Non-critical
+
+        return full_response
+
+    def _build_help_response(self, tier: str, intent) -> str:
+        """Build instant help response for HELP intent — no LLM needed."""
+        commands = {
+            "player": [
+                "Available commands: /help — show this help",
+                "Ask me anything about ARK — dino stats, item info, engrams, tribe info, server status",
+            ],
+            "vip": [
+                "VIP commands: /spawn <dino> — summon a creature",
+                "Ask me anything — dino stats, item info, engrams, tribe info, server status",
+            ],
+            "mod": [
+                "Moderator commands: /spawn, /teleport, /kick, /ban, /broadcast",
+                "Alerts: wild dino near base auto-detected",
+            ],
+            "admin": [
+                "Admin commands: full tool access",
+                "Tip: Use the desktop app (WS :8444) for AI chat, skill triggers, and world stats",
+            ],
+            "superadmin": [
+                "Full access: all commands, all tools, skill bundles, graceful shutdown",
+                "Desktop app: WS :8444 (ai_chat, ai_intent, memory_search, skill_trigger)",
+            ],
+        }
+        tier_commands = commands.get(tier, commands["player"])
+        return "Sheldon here! " + " ".join(tier_commands)
+
+    def _build_casual_response(self, text: str, session) -> str:
+        """Build casual chat response — no LLM needed for high-confidence chat."""
+        lower = text.lower().strip()
+
+        if any(w in lower for w in ("hi", "hello", "hey", "howdy")):
+            return f"Hi {session.player.display_name}! How can I help you in ARK today?"
+
+        if any(w in lower for w in ("thanks", "thank you", "thx")):
+            return "You're welcome! Let me know if you need anything else."
+
+        if any(w in lower for w in ("bye", "goodbye", "see ya")):
+            return "See you around, good luck out there!"
+
+        if "good bot" in lower or "good boy" in lower:
+            return "*wags tail* Arf! Happy to help!"
+
+        # Default casual response
+        return "I'm listening. What do you need?"
+
+    def _build_query_prompt(self, text: str, intent) -> str:
+        """Build a concise query prompt for QUERY-type intents."""
+        # Route to appropriate knowledge domain based on entities
+        entities = intent.entities
+        if entities.get("dino"):
+            return f"Answer concisely: {text}"
+        if "balance" in text.lower():
+            return f"Answer concisely: {text}"
+        if any(w in text.lower() for w in ("player", "who is", "tribe")):
+            return f"Answer concisely: {text}"
+        return f"Answer this ARK question concisely (1-2 sentences): {text}"
 
     async def _handle_game_event(
         self, msg: dict, session, websocket: ServerConnection
