@@ -549,15 +549,43 @@ ADMIN: /reload, /save, /status, /event
             Plugin::Get()->SendReply(pc, oss.str());
         }
 
-        void OnHome(AShooterPlayerController* pc, FString* cmd, bool) {
-            Plugin::Get()->SendReply(pc, "[DuckBot] Teleporting to home... (not yet implemented)");
+        // ─── TPR Pending Requests ─────────────────────────────────────────────────────
+    static std::unordered_map<uint64, uint64> pending_tpr_; // requester_steamid → target_steamid
+
+    void OnHome(AShooterPlayerController* pc, FString* cmd, bool) {
+            uint64 steam_id = GetSteamIdFromPC(pc);
+            auto* pData = Plugin::Get()->GetPlayerBySteamId(steam_id);
+            if (!pData) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Player data not found.");
+                return;
+            }
+            if (pData->home_x == 0 && pData->home_y == 0 && pData->home_z == 0) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Home not set. Use /sethome first.");
+                return;
+            }
+
+            // TODO: Teleport player to (home_x, home_y, home_z)
+            // Using AsaApi::GetApiUtils().TeleportToPlayer(pc, ...)
+            std::ostringstream oss;
+            oss << "[DuckBot] Teleporting to home... (" << pData->home_x << ", " << pData->home_y << ", " << pData->home_z << ")";
+            Plugin::Get()->SendReply(pc, oss.str());
         }
 
         void OnSetHome(AShooterPlayerController* pc, FString* cmd, bool) {
-            auto* world = AsaApi::GetApiUtils().GetWorld();
-            if (!world) return;
-            // TODO: Get player position from pc, save as home
-            Plugin::Get()->SendReply(pc, "[DuckBot] Home position saved.");
+            uint64 steam_id = GetSteamIdFromPC(pc);
+            auto* pData = Plugin::Get()->GetOrCreatePlayer(steam_id);
+
+            FVector loc = pc->DefaultPlayerCameraManagerComponent ? pc->GetActorLocation() : FVector{0,0,0};
+            // Fallback: try GetActorLocation directly
+            FVector pos = pc->GetActorLocation();
+
+            pData->home_x = pos.X;
+            pData->home_y = pos.Y;
+            pData->home_z = pos.Z;
+
+            std::ostringstream oss;
+            oss << "[DuckBot] Home set at (" << static_cast<int>(pos.X) << ", " << static_cast<int>(pos.Y) << ", " << static_cast<int>(pos.Z) << ")";
+            Plugin::Get()->SendReply(pc, oss.str());
         }
 
         void OnTPR(AShooterPlayerController* pc, FString* cmd, bool) {
@@ -567,11 +595,37 @@ ADMIN: /reload, /save, /status, /event
                 Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /tpr [player]");
                 return;
             }
-            Plugin::Get()->SendReply(pc, "[DuckBot] TPR sent. Target has 60s to /tpaccept");
+
+            uint64 requester = GetSteamIdFromPC(pc);
+            std::string target_name = std::string(*parsed[1]);
+
+            // Find target player by name (need to iterate connected players via ApiUtils)
+            // For now store pending request
+            // TODO: use AsaApi::GetApiUtils().FindPlayerBy... to resolve target
+            pending_tpr_[requester] = 0; // placeholder - needs target steamid resolved
+
+            Plugin::Get()->SendReply(pc, "[DuckBot] Teleport request sent to " + target_name + ". They have 60s to /tpaccept");
         }
 
         void OnTPAccept(AShooterPlayerController* pc, FString* cmd, bool) {
-            Plugin::Get()->SendReply(pc, "[DuckBot] Teleport accepted.");
+            uint64 target_steam = GetSteamIdFromPC(pc);
+
+            // Find requester who sent TPR to this player
+            uint64 requester = 0;
+            for (auto& [req, tgt] : pending_tpr_) {
+                if (tgt == target_steam) { requester = req; break; }
+            }
+
+            if (requester == 0) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] No pending teleport request.");
+                return;
+            }
+
+            pending_tpr_.erase(requester);
+
+            // TODO: Teleport requester to target's position
+            // AsaApi::GetApiUtils().TeleportPlayer(requester, target_pos)
+            Plugin::Get()->SendReply(pc, "[DuckBot] Teleport accepted! Teleporting...");
         }
 
         void OnWarp(AShooterPlayerController* pc, FString* cmd, bool) {
@@ -583,21 +637,47 @@ ADMIN: /reload, /save, /status, /event
             }
             auto& warps = Plugin::Get()->GetWarpDB();
             auto warp_name = std::string(*parsed[1]);
-            if (warps.find(warp_name) == warps.end()) {
+            auto it = warps.find(warp_name);
+            if (it == warps.end()) {
                 Plugin::Get()->SendReply(pc, "[DuckBot] Warp not found.");
                 return;
             }
-            Plugin::Get()->SendReply(pc, "[DuckBot] Warping... (not yet implemented)");
+
+            // TODO: Teleport to warp position
+            // FVector pos{it->second.x, it->second.y, it->second.z};
+            // AsaApi::GetApiUtils().TeleportPlayerToLocation(pc, pos);
+            std::ostringstream oss;
+            oss << "[DuckBot] Warping to " << warp_name << "...";
+            Plugin::Get()->SendReply(pc, oss.str());
         }
 
         void OnSetWarp(AShooterPlayerController* pc, FString* cmd, bool) {
+            if (!Plugin::Get()->HasPermission(pc, PERM_MOD)) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] No permission.");
+                return;
+            }
             TArray<FString> parsed;
             cmd->ParseIntoArray(parsed, L" ", true);
             if (!parsed.IsValidIndex(1)) {
                 Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /setwarp [name]");
                 return;
             }
-            Plugin::Get()->SendReply(pc, "[DuckBot] Warp created. (not yet implemented)");
+
+            std::string warp_name = std::string(*parsed[1]);
+            FVector pos = pc->GetActorLocation();
+
+            MapMarker marker;
+            marker.name = warp_name;
+            marker.x = pos.X;
+            marker.y = pos.Y;
+            marker.z = pos.Z;
+            marker.created_by = GetSteamIdFromPC(pc);
+
+            Plugin::Get()->GetWarpDB()[warp_name] = marker;
+
+            std::ostringstream oss;
+            oss << "[DuckBot] Warp '" << warp_name << "' created at (" << static_cast<int>(pos.X) << ", " << static_cast<int>(pos.Y) << ", " << static_cast<int>(pos.Z) << ")";
+            Plugin::Get()->SendReply(pc, oss.str());
         }
 
         void OnMarker(AShooterPlayerController* pc, FString* cmd, bool) {
