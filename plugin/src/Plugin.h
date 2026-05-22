@@ -99,6 +99,16 @@ namespace DuckBot
         int created_by = 0;
     };
 
+    // ─── Event Definition ───────────────────────────────────────────────────────
+    struct EventDefinition {
+        std::string name;
+        std::string description;
+        int duration_seconds = 300;
+        bool active = false;
+        int admin_steam_id = 0;
+        std::chrono::steady_clock::time_point started_at;
+    };
+
     // ─── Plugin Singleton ───────────────────────────────────────────────────────
     class Plugin {
     public:
@@ -139,6 +149,7 @@ namespace DuckBot
         std::unordered_map<std::string, MapMarker>& GetWarpDB() { return warps_; }
         std::unordered_map<std::string, MapMarker>& GetMarkerDB() { return markers_; }
         std::unordered_map<uint64, std::chrono::steady_clock::time_point>& GetKitCooldowns() { return kit_cooldowns_; }
+        std::unordered_map<std::string, EventDefinition>& GetEventDB() { return events_; }
 
     private:
         static Plugin* singleton_;
@@ -149,6 +160,7 @@ namespace DuckBot
         std::unordered_map<std::string, MapMarker> warps_;
         std::unordered_map<std::string, MapMarker> markers_;  // tribe markers keyed by "tribeId:name"
         std::unordered_map<uint64, std::chrono::steady_clock::time_point> kit_cooldowns_;
+        std::unordered_map<std::string, EventDefinition> events_;  // active/defined events
         std::mutex data_mutex_;
 
         Plugin() = default;

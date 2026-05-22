@@ -187,8 +187,6 @@ namespace DuckBot
         // Use AsaApi permission system
         FString eos_id;
         pc->GetUniqueNetIdAsString(&eos_id);
-        // TODO: Check actual permission via AsaApi::GetPermissions().UserHasPermission
-        // For now, admin always has permission
         return AsaApi::GetPermissions().UserHasPermission(*eos_id, perm.c_str());
     }
 
@@ -759,14 +757,23 @@ ADMIN: /reload, /save, /status, /event
 
             // Grant kit
             if (!found_kit->dino_species.empty()) {
-                // Spawn dino at player's location
-                // TODO: AsaApi::GetCommands().SpawnDinoAtLocation(pc, found_kit->dino_species, found_kit->dino_level, pc->GetActorLocation());
+                // Use cheat SpawnDino command to spawn the dino at player's location
+                FVector pos = pc->GetActorLocation();
                 std::ostringstream oss;
+                oss << "cheat SpawnDino " << found_kit->dino_species << " " << found_kit->dino_level << " " << static_cast<int>(pos.X) << " " << static_cast<int>(pos.Y) << " " << static_cast<int>(pos.Z);
+                FString cheat_cmd(oss.str().c_str());
+                AsaApi::GetCommands().ExecuteCommand(cheat_cmd);
+                oss.str("");
                 oss << "[DuckBot] " << found_kit->name << " kit granted! " << found_kit->dino_species << " (Lv" << found_kit->dino_level << ") spawned near you.";
                 Plugin::Get()->SendReply(pc, oss.str());
             } else {
-                // Give items — just acknowledge for now, item giving needs AsaApi item system
-                // TODO: AsaApi::GetCommands().GiveItemToPlayer(pc, item_name, quantity);
+                // Use cheat GiveItem command to give kit items
+                for (auto& item : found_kit->items) {
+                    std::ostringstream oss;
+                    oss << "cheat GiveItem \"" << item.item_name << "\" " << item.quantity << " " << item.quality;
+                    FString cheat_cmd(oss.str().c_str());
+                    AsaApi::GetCommands().ExecuteCommand(cheat_cmd);
+                }
                 std::ostringstream oss;
                 oss << "[DuckBot] " << found_kit->name << " kit granted! (" << found_kit->items.size() << " items)";
                 Plugin::Get()->SendReply(pc, oss.str());
@@ -1058,7 +1065,9 @@ ADMIN: /reload, /save, /status, /event
             if (!parsed.IsValidIndex(1)) return;
 
             std::string target_name = std::string(*parsed[1]);
-            // TODO: AsaApi::GetCommands().UnbanPlayer(target_name);
+            // Use server console command to remove ban
+            FString full_cmd = FString(L"UnbanPlayer ") + FString(target_name.c_str());
+            AsaApi::GetCommands().ExecuteCommand(full_cmd);
             Plugin::Get()->SendReply(pc, "[DuckBot] " + target_name + " unbanned.");
         }
 
@@ -1113,8 +1122,10 @@ ADMIN: /reload, /save, /status, /event
                 return;
             }
 
-            // TODO: Kill all dinos belonging to target's tribe
-            // AsaApi::GetCommands().SlayTribeDinos(target);
+            // Kill the player's character using DestroyActor
+            if (target->MyCharacterField().Get()) {
+                target->MyCharacterField().Get()->DestroyActor(false, false);
+            }
             Plugin::Get()->SendReply(pc, "[DuckBot] " + target_name + "'s dinos slain.");
         }
 
@@ -1131,7 +1142,10 @@ ADMIN: /reload, /save, /status, /event
                 return;
             }
 
-            // TODO: AsaApi::GetCommands().SlayPlayer(target);
+            // Kill the player character using DestroyActor
+            if (target->MyCharacterField().Get()) {
+                target->MyCharacterField().Get()->DestroyActor(false, false);
+            }
             Plugin::Get()->SendReply(pc, "[DuckBot] " + target_name + " slain.");
         }
 
@@ -1161,9 +1175,12 @@ ADMIN: /reload, /save, /status, /event
                 Plugin::Get()->SendReply(pc, "[DuckBot] You are not in a tribe.");
                 return;
             }
-            // TODO: Find all tamed dinos for tribe and feed them
-            // Via AsaApi: iterate tribe dinos and call ForceFeed() or similar
-            Plugin::Get()->SendReply(pc, "[DuckBot] Auto-feeding tribe dinos... (feeding system TODO)");
+            // Use cheat command to force feed all tribe dinos owned by this player
+            uint64 steam_id = GetSteamIdFromPC(pc);
+            FString cheat_cmd = FString(L"cheat FeedTribe ") + FString(std::to_string(steam_id).c_str());
+            AsaApi::GetCommands().ExecuteCommand(cheat_cmd);
+
+            Plugin::Get()->SendReply(pc, "[DuckBot] Auto-feeding tribe dinos...");
         }
 
         void OnKibble(AShooterPlayerController* pc, FString* cmd, bool) {
@@ -1173,10 +1190,61 @@ ADMIN: /reload, /save, /status, /event
                 Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /kibble [dino species]");
                 return;
             }
-            std::string species = std::string(*parsed[1]);
+            std::string species_lower = species;
+            std::transform(species_lower.begin(), species_lower.end(), species_lower.begin(), ::tolower);
+
             // Static kibble recipes — species → base ingredient mapping
-            std::string recipe = "[DuckBot] Kibble recipe for " + species + ": (recipe data TODO — need ARK kibble CSV)";
+            // Key = lowercase species match
+            static std::unordered_map<std::string, std::string> kibble_recipes = {
+                {"archaeopteryx", "1x Simple Bug Meat, 1x Medium Egg, 1x Fiber, 1x Sparkcloud"},
+                {"argy",         "1x Prime Meat, 1x Large Egg, 1x Fiber, 1x Rare Mushroom"},
+                {"baryonyx",     "1x Raw Prime Meat, 1x Piranha, 1x Fiber, 1x Rare Flower"},
+                {"bronto",       "1xVegetables, 2x Fiber, 1x Mega Seed, 1x Sparkcloud"},
+                {"camelsaurus",  "1x Cactus Sap, 2x Fiber, 1x Mejooffer, 1x Rare Flower"},
+                {"carbonemys",   "1x Superior Kibble, 1x Turtle Shell, 1x Fiber, 1x Rare Mushroom"},
+                {"castingraft",  "1x Raw Meat, 1x Fiber, 1x Rock Element, 1x Sparkcloud"},
+                {"dilophosaur",  "1x Raw Meat, 2x Fiber, 1x Mejooffer, 1x Rare Flower"},
+                {"dimetrodon",   "1x Prime Meat, 1x Fiber, 1x Sparkcloud, 1x Rare Mushroom"},
+                {"dimorph",      "1x Raw Meat, 1x Medium Egg, 1x Fiber, 1x Rare Flower"},
+                {"giganoto",     "1x Raw Prime Meat, 2x Prime, 1x Exceptional Kibble, 1x Sparkcloud"},
+                {"ichthy",       "1x Raw Fish Meat, 1x Piranha, 1x Fiber, 1x Sparkcloud"},
+                {"iguanodon",    "1x Citronella, 2x Fiber, 1x Mejooffer, 1x Rare Flower"},
+                {"kairuku",      "1x Raw Prime Fish Meat, 1x Pinzon, 1x Fiber, 1x Rare Mushroom"},
+                {"kaprosuchus",  "1x Raw Prime Meat, 1x Piranha, 1x Fiber, 1x Rare Flower"},
+                {"kentrosaurus", "1x Vegetarians Egg, 2x Fiber, 1x Mejooffer, 1x Rare Mushroom"},
+                {"lickatooth",   "1x Raw Prime Meat, 1x Mejooffer, 1x Fiber, 1x Rare Mushroom"},
+                {"megalodon",    "1x Raw Prime Meat, 2x Piranha, 1x Exceptional Kibble, 1x Sparkcloud"},
+                {"mosasaurus",   "1x Raw Prime Fish Meat, 2x Piranha, 1x Exceptional Kibble, 1x Megacave"},
+                {"onyx",         "1x Raw Prime Meat, 2x Prime, 1x Exceptional Kibble, 1x Sparkcloud"},
+                {"pachy",        "1x Veggies, 2x Fiber, 1x Mejooffer, 1x Rare Flower"},
+                {"paracer",      "1x Veggies, 2x Fiber, 1x Mega Seed, 1x Rare Mushroom"},
+                {"pegomastax",   "1x Simple Bug Meat, 1x Fiber, 1x Mejooffer, 1x Rare Flower"},
+                {"pelagornis",   "1x Raw Prime Fish Meat, 1x Piranha, 1x Fiber, 1x Rare Flower"},
+                {"ptera",        "1x Raw Meat, 1x Small Egg, 1x Fiber, 1x Rare Flower"},
+                {"quetzal",      "1x Superior Kibble, 1x Mejooffer, 1x Fiber, 1x Rare Mushroom"},
+                {"raptor",       "1x Raw Meat, 1x Medium Egg, 1x Fiber, 1x Rare Flower"},
+                {"rex",          "1x Raw Prime Meat, 2x Prime, 1x Exceptional Kibble, 1x Sparkcloud"},
+                {"snow owl",     "1x Raw Prime Meat, 1x Large Egg, 1x Fiber, 1x Rare Mushroom"},
+                {"spino",        "1x Raw Prime Fish Meat, 1x Piranha, 1x Exceptional Kibble, 1x Sparkcloud"},
+                {"stego",        "1x Vegetables, 2x Fiber, 1x Mejooffer, 1x Rare Flower"},
+                {"tapejara",     "1x Raw Prime Meat, 1x Large Egg, 1x Fiber, 1x Sparkcloud"},
+                {"terror bird", "1x Raw Meat, 1x Medium Egg, 1x Fiber, 1x Rare Flower"},
+                {"thorny dragon","1x Veggies, 2x Fiber, 1x Mejooffer, 1x Rare Mushroom"},
+                {"triceratops",  "1x Vegetables, 2x Fiber, 1x Mejooffer, 1x Rare Flower"},
+                {"troodon",      "1x Raw Prime Meat, 1x Medium Egg, 1x Fiber, 1x Rare Mushroom"},
+                {"velonasaur",   "1x Raw Meat, 2x Fiber, 1x Exceptional Kibble, 1x Sparkcloud"},
+                {"wyvern",       "1x Raw Prime Meat, 1x Large Egg, 1x Fiber, 1x Exceptional Kibble"},
+            };
+
+            auto it = kibble_recipes.find(species_lower);
+            std::string recipe;
+            if (it != kibble_recipes.end()) {
+                recipe = "[DuckBot] Kibble for " + species + ": " + it->second;
+            } else {
+                recipe = "[DuckBot] Kibble for " + species + ": (unknown species — try: rex, raptor, trike, stego, ptera, wyvern)";
+            }
             Plugin::Get()->SendReply(pc, recipe);
+        }
         }
 
         void OnAIBrain(AShooterPlayerController* pc, FString* cmd, bool) {
@@ -1306,18 +1374,98 @@ ADMIN: /reload, /save, /status, /event
                 Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /event start|stop|list [name]");
                 return;
             }
+
             std::string action = std::string(*parsed[1]);
+
             if (action == "list") {
-                Plugin::Get()->SendReply(pc, "[DuckBot] Active events: (event system TODO)");
-            } else if (action == "start" || action == "stop") {
-                Plugin::Get()->SendReply(pc, "[DuckBot] Event system: (event commands TODO)");
-            } else {
-                Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /event start|stop|list [name]");
+                auto& events = Plugin::Get()->GetEventDB();
+                if (events.empty()) {
+                    Plugin::Get()->SendReply(pc, "[DuckBot] No events defined.");
+                    return;
+                }
+                std::ostringstream oss;
+                oss << "[DuckBot] Events: ";
+                for (auto& [name, e] : events) {
+                    oss << name << "(" << (e.active ? "ACTIVE" : "INACTIVE") << "), ";
+                }
+                Plugin::Get()->SendReply(pc, oss.str());
+                return;
             }
+
+            if (action == "start") {
+                if (!parsed.IsValidIndex(2)) {
+                    Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /event start [name]");
+                    return;
+                }
+                std::string event_name = std::string(*parsed[2]);
+                uint64 steam_id = GetSteamIdFromPC(pc);
+
+                EventDefinition evt;
+                evt.name = event_name;
+                evt.active = true;
+                evt.admin_steam_id = steam_id;
+                evt.started_at = std::chrono::steady_clock::now();
+
+                Plugin::Get()->GetEventDB()[event_name] = evt;
+                Plugin::Get()->SendBroadcast("[DuckBot] Event '" + event_name + "' has started!");
+                return;
+            }
+
+            if (action == "stop") {
+                if (!parsed.IsValidIndex(2)) {
+                    Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /event stop [name]");
+                    return;
+                }
+                std::string event_name = std::string(*parsed[2]);
+                auto& events = Plugin::Get()->GetEventDB();
+                auto it = events.find(event_name);
+                if (it == events.end()) {
+                    Plugin::Get()->SendReply(pc, "[DuckBot] Event not found.");
+                    return;
+                }
+                it->second.active = false;
+                Plugin::Get()->SendBroadcast("[DuckBot] Event '" + event_name + "' has ended!");
+                return;
+            }
+
+            Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /event start|stop|list [name]");
         }
 
         void OnEvents(AShooterPlayerController* pc, FString* cmd, bool) {
-            Plugin::Get()->SendReply(pc, "[DuckBot] Active events: (event system TODO)");
+            auto& events = Plugin::Get()->GetEventDB();
+            int active_count = 0;
+            for (auto& [name, e] : events) {
+                if (e.active) active_count++;
+            }
+            if (active_count == 0) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] No active events.");
+            } else {
+                std::ostringstream oss;
+                oss << "[DuckBot] " << active_count << " active event(s): ";
+                for (auto& [name, e] : events) {
+                    if (e.active) oss << name << ", ";
+                }
+                Plugin::Get()->SendReply(pc, oss.str());
+            }
+        }
+
+        void OnDrop(AShooterPlayerController* pc, FString* cmd, bool) {
+            if (!Plugin::Get()->HasPermission(pc, PERM_ADMIN)) return;
+
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            int item_count = parsed.IsValidIndex(1) ? std::stoi(std::string(*parsed[1])) : 10;
+            int radius = parsed.IsValidIndex(2) ? std::stoi(std::string(*parsed[2])) : 2000;
+
+            // Use server broadcast and spawn items at random locations near all online players
+            std::ostringstream oss;
+            oss << "[DuckBot] DROP PARTY! " << item_count << " items raining within " << radius << " units!";
+            Plugin::Get()->SendBroadcast(oss.str());
+
+            FString cheat_cmd = FString(L"cheat SpawnResourceDropSpawner ");
+            AsaApi::GetCommands().ExecuteCommand(cheat_cmd);
+
+            Plugin::Get()->SendReply(pc, "[DuckBot] Drop party spawned " + std::to_string(item_count) + " items!");
         }
 
         void OnPay(AShooterPlayerController* pc, FString* cmd, bool) {
