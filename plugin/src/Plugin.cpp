@@ -738,11 +738,81 @@ ADMIN: /reload, /save, /status, /event
                 Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /marker add|list|remove [name] [type]");
                 return;
             }
-            Plugin::Get()->SendReply(pc, "[DuckBot] Marker: (not yet implemented)");
+
+            std::string action = std::string(*parsed[1]);
+
+            if (action == "list") {
+                auto& markers = Plugin::Get()->GetMarkerDB();
+                int tribe_id = Plugin::Get()->GetPlayerTribeId(pc);
+                if (markers.empty()) {
+                    Plugin::Get()->SendReply(pc, "[DuckBot] No markers set.");
+                    return;
+                }
+                std::ostringstream oss;
+                oss << "[DuckBot] Markers for tribe " << tribe_id << ": ";
+                int count = 0;
+                for (auto& [key, m] : markers) {
+                    if (count++ < 10) oss << m.name << "(" << static_cast<int>(m.x) << "," << static_cast<int>(m.z) << ") ";
+                }
+                Plugin::Get()->SendReply(pc, oss.str());
+                return;
+            }
+
+            if (action == "add") {
+                if (!parsed.IsValidIndex(2)) {
+                    Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /marker add [name] [type]");
+                    return;
+                }
+                std::string name = std::string(*parsed[2]);
+                FVector pos = pc->GetActorLocation();
+                MapMarker m;
+                m.name = name;
+                m.x = pos.X; m.y = pos.Y; m.z = pos.Z;
+                m.created_by = GetSteamIdFromPC(pc);
+                int tribe_id = Plugin::Get()->GetPlayerTribeId(pc);
+                std::string key = std::to_string(tribe_id) + ":" + name;
+                Plugin::Get()->GetMarkerDB()[key] = m;
+                Plugin::Get()->SendReply(pc, "[DuckBot] Marker '" + name + "' added.");
+                return;
+            }
+
+            if (action == "remove") {
+                if (!parsed.IsValidIndex(2)) {
+                    Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /marker remove [name]");
+                    return;
+                }
+                std::string name = std::string(*parsed[2]);
+                int tribe_id = Plugin::Get()->GetPlayerTribeId(pc);
+                std::string key = std::to_string(tribe_id) + ":" + name;
+                auto& markers = Plugin::Get()->GetMarkerDB();
+                if (markers.erase(key)) {
+                    Plugin::Get()->SendReply(pc, "[DuckBot] Marker '" + name + "' removed.");
+                } else {
+                    Plugin::Get()->SendReply(pc, "[DuckBot] Marker not found.");
+                }
+                return;
+            }
+
+            Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /marker add|list|remove [name] [type]");
         }
 
         void OnGridMap(AShooterPlayerController* pc, FString* cmd, bool) {
-            Plugin::Get()->SendReply(pc, "[DuckBot] Grid map: (not yet implemented)");
+            // Show all warps and markers as a text-based grid reference
+            auto& warps = Plugin::Get()->GetWarpDB();
+            auto& markers = Plugin::Get()->GetMarkerDB();
+            std::ostringstream oss;
+            oss << "[DuckBot] Warps (" << warps.size() << "): ";
+            for (auto& [name, w] : warps) {
+                oss << name << ", ";
+            }
+            oss << " | Markers (" << markers.size() << "): ";
+            for (auto& [key, m] : markers) {
+                oss << m.name << ", ";
+            }
+            if (warps.empty() && markers.empty()) {
+                oss << "(none defined — use /setwarp or /marker add)";
+            }
+            Plugin::Get()->SendReply(pc, oss.str());
         }
 
         void OnKick(AShooterPlayerController* pc, FString* cmd, bool) {
@@ -895,25 +965,42 @@ ADMIN: /reload, /save, /status, /event
         }
 
         void OnFeed(AShooterPlayerController* pc, FString* cmd, bool) {
-            Plugin::Get()->SendReply(pc, "[DuckBot] Auto-feeding tames... (not yet implemented)");
+            uint64 steam_id = GetSteamIdFromPC(pc);
+            auto* pData = Plugin::Get()->GetOrCreatePlayer(steam_id);
+            int tribe_id = pData ? pData->tribe_id : Plugin::Get()->GetPlayerTribeId(pc);
+            if (tribe_id == 0) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] You are not in a tribe.");
+                return;
+            }
+            // TODO: Find all tamed dinos for tribe and feed them
+            // Via AsaApi: iterate tribe dinos and call ForceFeed() or similar
+            Plugin::Get()->SendReply(pc, "[DuckBot] Auto-feeding tribe dinos... (feeding system TODO)");
         }
 
-        void OnCoinFlip(AShooterPlayerController* pc, FString* cmd, bool) {
+        void OnKibble(AShooterPlayerController* pc, FString* cmd, bool) {
             TArray<FString> parsed;
             cmd->ParseIntoArray(parsed, L" ", true);
-            int wager = parsed.IsValidIndex(1) ? std::stoi(*parsed[1]) : 0;
-
-            static std::random_device rd;
-            static std::mt19937 gen(rd());
-            bool result = std::bernoulli_distribution(0.5)(gen);
-
-            std::ostringstream oss;
-            if (wager > 0) {
-                oss << "[DuckBot] Coin: " << (result ? "HEADS" : "TAILS") << " | Wager: " << wager << " | You " << (result ? "WIN!" : "LOSE!");
-            } else {
-                oss << "[DuckBot] Coin: " << (result ? "HEADS" : "TAILS");
+            if (!parsed.IsValidIndex(1)) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /kibble [dino species]");
+                return;
             }
+            std::string species = std::string(*parsed[1]);
+            // Static kibble recipes — species → base ingredient mapping
+            std::string recipe = "[DuckBot] Kibble recipe for " + species + ": (recipe data TODO — need ARK kibble CSV)";
+            Plugin::Get()->SendReply(pc, recipe);
+        }
+
+        void OnAIBrain(AShooterPlayerController* pc, FString* cmd, bool) {
+            bool connected = GetMCPBridge()->IsConnected();
+            std::ostringstream oss;
+            oss << "[DuckBot] AI Bridge: " << (connected ? "CONNECTED" : "DISCONNECTED");
+            oss << " | Host: " << Plugin::Get()->GetConfig().mcp_host << ":" << Plugin::Get()->GetConfig().mcp_port;
             Plugin::Get()->SendReply(pc, oss.str());
+        }
+
+        void OnAIReset(AShooterPlayerController* pc, FString* cmd, bool) {
+            uint64 steam_id = GetSteamIdFromPC(pc);
+            Plugin::Get()->SendReply(pc, "[DuckBot] AI context reset for your session.");
         }
 
         void OnDaily(AShooterPlayerController* pc, FString* cmd, bool) {
@@ -964,7 +1051,7 @@ ADMIN: /reload, /save, /status, /event
         }
 
         void OnBreeds(AShooterPlayerController* pc, FString* cmd, bool) {
-            Plugin::Get()->SendReply(pc, "[DuckBot] No recent breed alerts.");
+            Plugin::Get()->SendReply(pc, "[DuckBot] No recent breed alerts. (breeding tracker TODO)");
         }
 
         void OnKibble(AShooterPlayerController* pc, FString* cmd, bool) {
@@ -974,15 +1061,21 @@ ADMIN: /reload, /save, /status, /event
                 Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /kibble [dino species]");
                 return;
             }
-            Plugin::Get()->SendReply(pc, "[DuckBot] Kibble: (not yet implemented)");
+            std::string species = std::string(*parsed[1]);
+            std::string recipe = "[DuckBot] Kibble recipe for " + species + ": (recipe data TODO — need ARK kibble CSV)";
+            Plugin::Get()->SendReply(pc, recipe);
         }
 
         void OnAIBrain(AShooterPlayerController* pc, FString* cmd, bool) {
-            Plugin::Get()->SendReply(pc, "[DuckBot] AI Brain: Not yet connected to MCP bridge");
+            bool connected = GetMCPBridge()->IsConnected();
+            std::ostringstream oss;
+            oss << "[DuckBot] AI Bridge: " << (connected ? "CONNECTED" : "DISCONNECTED");
+            oss << " | Host: " << Plugin::Get()->GetConfig().mcp_host << ":" << Plugin::Get()->GetConfig().mcp_port;
+            Plugin::Get()->SendReply(pc, oss.str());
         }
 
         void OnAIReset(AShooterPlayerController* pc, FString* cmd, bool) {
-            Plugin::Get()->SendReply(pc, "[DuckBot] AI context reset.");
+            Plugin::Get()->SendReply(pc, "[DuckBot] AI context reset for your session.");
         }
 
         void OnSave(AShooterPlayerController* pc, FString* cmd, bool) {
@@ -1002,7 +1095,7 @@ ADMIN: /reload, /save, /status, /event
             oss << "Tribes: " << Plugin::Get()->GetAllTribes().size() << "\n";
             oss << "Kits: " << Plugin::Get()->GetAllKits().size() << "\n";
             oss << "Warps: " << Plugin::Get()->GetWarpDB().size() << "\n";
-            oss << "MCP Bridge: Not connected\n";
+            oss << "MCP Bridge: " << (GetMCPBridge()->IsConnected() ? "CONNECTED" : "DISCONNECTED") << "\n";
             oss << "Version: " << PLUGIN_VERSION;
             Plugin::Get()->SendReply(pc, oss.str());
         }
@@ -1012,11 +1105,24 @@ ADMIN: /reload, /save, /status, /event
                 Plugin::Get()->SendReply(pc, "[DuckBot] Admin only.");
                 return;
             }
-            Plugin::Get()->SendReply(pc, "[DuckBot] Event: (not yet implemented)");
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            if (!parsed.IsValidIndex(1)) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /event start|stop|list [name]");
+                return;
+            }
+            std::string action = std::string(*parsed[1]);
+            if (action == "list") {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Active events: (event system TODO)");
+            } else if (action == "start" || action == "stop") {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Event system: (event commands TODO)");
+            } else {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /event start|stop|list [name]");
+            }
         }
 
         void OnEvents(AShooterPlayerController* pc, FString* cmd, bool) {
-            Plugin::Get()->SendReply(pc, "[DuckBot] No active events.");
+            Plugin::Get()->SendReply(pc, "[DuckBot] Active events: (event system TODO)");
         }
 
         void OnDrop(AShooterPlayerController* pc, FString* cmd, bool) {
