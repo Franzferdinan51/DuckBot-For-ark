@@ -17,6 +17,7 @@ import signal
 
 import websockets
 from websockets.asyncio.server import serve, ServerConnection
+from aiohttp import web
 
 from sheldon_bridge.agent import Agent
 from sheldon_bridge.auth import PlayerContext, RateLimiter, TokenAuthenticator
@@ -330,6 +331,15 @@ async def run_server(config: BridgeConfig) -> None:
         f"ws://{config.websocket_host}:{config.websocket_port}"
     )
 
+    # Start REST admin API server for desktop companion app (HTTP on admin_port+1, e.g. 8445)
+    from sheldon_bridge.rest_admin import create_rest_app
+    rest_app = create_rest_app(config, server)
+    rest_runner = web.AppRunner(rest_app)
+    await rest_runner.setup()
+    rest_site = web.TCPSite(rest_runner, config.websocket_host, config.admin_port + 1)
+    await rest_site.start()
+    logger.info(f"Admin REST API: http://{config.websocket_host}:{config.admin_port + 1}")
+
     async with serve(
         server.handle_connection,
         host=config.websocket_host,
@@ -342,6 +352,7 @@ async def run_server(config: BridgeConfig) -> None:
         logger.info("Sheldon Bridge is running. Press Ctrl+C to stop.")
         await stop
 
+    await rest_runner.cleanup()
     cleanup_task.cancel()
     logger.info("Sheldon Bridge stopped.")
 
