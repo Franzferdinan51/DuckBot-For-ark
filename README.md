@@ -220,19 +220,22 @@ Config file: `ArkApi/Data/DuckBot/config.json`
 
 ## Status
 
-**Conversion in progress — ServerAPI C++ plugin structure complete, MCP bridge adapting from sheldon-mcp-bridge.**
+**DuckBot plugin + MCP bridge are complete and wired together.**
 
-- [x] 39 chat commands implemented
-- [x] 6 game hooks registered
-- [x] MCP WebSocket bridge client (raw Winsock2, auto-reconnect)
-- [x] Economy: daily, work, balance, pay, coinflip
-- [x] Teleport: home, warp, tpr, tpaccept, tphere
-- [x] Moderation: kick, ban, unban, mute, unmute, slay, slayplayer
-- [x] Kit system: 5 default kits with cooldown
-- [x] Kibble recipes: 40+ species
-- [x] Event system: start/stop/list events, drop party
-- [x] JSON persistence (players, warps, markers, events)
-- [ ] MCP bridge Python server (based on sheldon-mcp-bridge, in progress)
+- [x] 39 chat commands implemented (C++ ServerAPI plugin)
+- [x] 6 game hooks registered (join/leave/tame/born/died/levelup)
+- [x] Raw Winsock2 WebSocket CLIENT with auto-reconnect (plugin connects to bridge)
+- [x] Command queue system (plugin polls bridge for pending commands)
+- [x] MCP bridge Python server (asyncio WebSocket server, based on sheldon-mcp-bridge)
+- [x] DuckBotSession wired in — ARK game event context active
+- [x] DuckBotHandler — command queue (spawn_dino, teleport, give_item, slay, feed_tribe, console_command)
+- [x] LLM providers: Anthropic, OpenAI, Google, OpenRouter, LM Studio, Ollama, MiniMax
+- [x] Tier-based tool registry with permission enforcement
+- [x] Metrics: LLM usage, tool latencies, per-player engagement, bridge health
+- [x] Audit logging: auth attempts, tool calls, rate limits, player messages
+- [x] Local LLM support (LM Studio/Ollama on custom api_base)
+- [x] Critical/high severity bugs fixed (13 bugs across C++ plugin and Python bridge)
+- [ ] Remaining 31 medium/low bugs (tracked for follow-up)
 - [ ] Blueprint mod / natural language UI (future work)
 
 ---
