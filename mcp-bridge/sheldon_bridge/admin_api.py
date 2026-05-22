@@ -243,10 +243,65 @@ class AdminServer:
         if cmd == "ai_chat":
             # Free-form AI chat from desktop admin (bypasses game mod)
             query = msg.get("query", "")
+            stream = msg.get("stream", False)
             if query:
-                result = await self._ai_chat(query)
+                if stream:
+                    # Streaming AI chat — send tokens as they arrive
+                    await self._ai_chat_stream(session, query)
+                else:
+                    result = await self._ai_chat(query)
+                    await session.websocket.send(json.dumps({
+                        "type": "ai_chat_result", "query": query, "result": result
+                    }))
+            return
+
+        if cmd == "ai_tool_execute":
+            # Execute a specific tool via AI intent (desktop app can request tool execution)
+            tool_name = msg.get("tool", "")
+            args = msg.get("args", {})
+            if tool_name:
+                result = await self._ai_tool_execute(tool_name, args)
                 await session.websocket.send(json.dumps({
-                    "type": "ai_chat_result", "query": query, "result": result
+                    "type": "ai_tool_result", "tool": tool_name, "result": result
+                }))
+            return
+
+        if cmd == "ai_intent":
+            # Classify intent of a message without executing (for UI hints)
+            text = msg.get("text", "")
+            if text:
+                from sheldon_bridge.intent import IntentClassifier, IntentType
+                classifier = IntentClassifier()
+                result = classifier.classify(text)
+                await session.websocket.send(json.dumps({
+                    "type": "ai_intent_result",
+                    "text": text,
+                    "intent": result.intent_type.value,
+                    "confidence": result.confidence,
+                    "entities": result.entities,
+                    "reasoning": result.reasoning,
+                }))
+            return
+
+        if cmd == "memory_search":
+            # Search cross-session memory with scoring
+            query = msg.get("query", "")
+            limit = msg.get("limit", 5)
+            if query:
+                from sheldon_bridge.skills.improver import CrossSessionMemory
+                memory = CrossSessionMemory()
+                results = memory.search(query, limit=limit)
+                await session.websocket.send(json.dumps({
+                    "type": "memory_search_result", "query": query,
+                    "matches": [
+                        {
+                            "key": r.key,
+                            "content": r.content,
+                            "access_count": r.access_count,
+                            "tags": r.tags,
+                        }
+                        for r in results
+                    ]
                 }))
             return
 
@@ -494,6 +549,116 @@ class AdminServer:
         except Exception as e:
             logger.error(f"Admin AI chat failed: {e}", exc_info=True)
             return {"error": str(e)}
+
+    async def _ai_chat_stream(self, session: AdminSession, query: str) -> None:
+        """Streaming AI chat — sends tokens in-flight to the desktop app.
+
+        Uses run_streaming() to provide real-time typewriter effect.
+        Tokens are sent as stream_token messages, followed by ai_chat_result.
+        """
+        if not self._game:
+            await session.websocket.send(json.dumps({
+                "type": "error", "error": "Game server not connected"
+            }))
+            return
+
+        from sheldon_bridge.agent import Agent
+
+        class AdminPlayer:
+            player_id = "admin-desktop"
+            display_name = "Admin"
+            tier = "superadmin"
+            tribe_id = ""
+            position = {}
+            facing_yaw = 0.0
+
+        class AdminSessionCtx:
+            player = AdminPlayer()
+            conversation = [
+                {"role": "system", "content": (
+                    "You are Sheldon, an AI assistant for an ARK: Survival Ascended "
+                    "server running on DuckBot. You help server admins manage the "
+                    "server, answer questions about game mechanics, and can execute "
+                    "admin commands. Be concise and helpful."
+                )},
+                {"role": "user", "content": query},
+            ]
+            system_prompt = ""
+            total_input_tokens = 0
+            total_output_tokens = 0
+            total_cost = 0.0
+            created_at = 0.0
+            last_active = 0.0
+            lock = asyncio.Lock()
+
+            def get_messages(self):
+                return self.conversation
+
+            def track_usage(self, i, o, c):
+                self.total_input_tokens += i
+                self.total_output_tokens += o
+                self.total_cost += c
+
+            def add_assistant_message(self, msg):
+                self.conversation.append(msg)
+
+        session_ctx = AdminSessionCtx()
+        agent = Agent(
+            llm=self._game.llm,
+            registry=self._game.registry,
+            rate_limiter=self._game.rate_limiter,
+        )
+
+        async def stream_send(msg: dict) -> None:
+            msg["type"] = "stream_token"
+            await session.websocket.send(json.dumps(msg))
+
+        try:
+            result = await agent.run_streaming(session_ctx, query, stream_send)
+            await session.websocket.send(json.dumps({
+                "type": "ai_chat_result",
+                "query": query,
+                "result": {
+                    "response": result.response_text,
+                    "stats": {
+                        "iterations": result.iterations,
+                        "tool_calls": result.tool_calls_made,
+                        "cost": round(result.total_cost, 6),
+                        "duration_ms": round(result.duration_ms, 1),
+                    },
+                },
+            }))
+        except Exception as e:
+            logger.error(f"Admin AI chat streaming failed: {e}", exc_info=True)
+            await session.websocket.send(json.dumps({
+                "type": "error", "error": str(e)
+            }))
+
+    async def _ai_tool_execute(self, tool_name: str, args: dict) -> dict[str, Any]:
+        """Execute a specific tool directly (for structured admin commands).
+
+        Use this when the desktop app knows exactly which tool to call
+        rather than going through AI intent routing.
+        """
+        if not self._game:
+            return {"error": "Game server not connected"}
+
+        registry = self._game.registry
+        tool_def = registry._tools.get(tool_name)
+
+        if not tool_def:
+            return {"error": f"Tool '{tool_name}' not found"}
+
+        # Verify tool is available to admin tier
+        if tool_def.tier not in ("admin", "superadmin"):
+            return {"error": f"Tool '{tool_name}' requires {tool_def.tier} tier, not admin"}
+
+        try:
+            result = await tool_def.function(**args)
+            return {"success": True, "result": result}
+        except Exception as e:
+            logger.error(f"Admin tool execution '{tool_name}' failed: {e}")
+            return {"success": False, "error": str(e)}
 
     async def _trigger_skill(self, skill_name: str, context: dict) -> dict[str, Any]:
         """Manually trigger a named skill with given context."""
