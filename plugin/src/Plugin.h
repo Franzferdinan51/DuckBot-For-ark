@@ -4,11 +4,6 @@
 #define PLUGIN_VERSION "1.0.0"
 
 #include "../AsaApi/Core/Public/API/Base.h"
-#include "../AsaApi/Core/Public/API/Hooks.h"
-#include "../AsaApi/Core/Public/API/Commands.h"
-#include "../AsaApi/Core/Public/API/Tools/Logger.h"
-#include "../AsaApi/Core/Public/API/Tools/Config.h"
-#include "../AsaApi/Core/Public/API/Tools/Directory.h"
 
 #include <string>
 #include <vector>

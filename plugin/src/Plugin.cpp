@@ -8,8 +8,6 @@
 
 #pragma comment(lib, "AsaApi.lib")
 
-#pragma comment(lib, "AsaApi.lib")
-
 namespace DuckBot
 {
     Plugin* Plugin::singleton_ = nullptr;

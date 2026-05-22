@@ -1,136 +1,138 @@
-# Sheldon AI for ARK — with DuckBot ServerAPI Plugin
+# DuckBot AI for ARK
 
-**Fork of [sheldon-ai-for-ark](https://github.com/Franzferdinan51/sheldon-ai-for-ark) with DuckBot C++ plugin.**
+**Fork of [sheldon-ai-for-ark](https://github.com/ArkAscendedAI/sheldon-ai-for-ark) — converted to ServerAPI C++ for ARK Survival Ascended.**
 
-An open-source, in-game AI assistant for **ARK: Survival Ascended** with two complementary components:
+An AI-powered in-game assistant for **ARK: Survival Ascended** where a large language model controls tribe management, dino operations, economy, moderation, and server events through natural language.
 
-1. **DuckBot Plugin** — ServerAPI C++ plugin with 39 chat commands, tribe management, economy, and moderation (this repo)
-2. **sheldon-ai-for-ark Blueprint Mod** — Natural language AI assistant via the same MCP bridge
+> **"DuckBot, enable wild dino alerts for my tribe"**
+> **"What's the status of my tribe's dinos?"**
+> **"Claim the VIP kit"**
 
-> **"Hey Sheldon, where do Rexes spawn on Ragnarok?"**
-> **"Spawn a level 200 female Yutyrannus 40 feet in front of me."**
-> **"What kibble do I need for an Argentavis?"**
-
-![Status](https://img.shields.io/badge/status-in%20development-orange)
+![Status](https://img.shields.io/badge/status-converting-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 ---
 
-## Two Ways to Use This Project
+## Architecture
 
-### Option A — DuckBot Plugin (ServerAPI/C++)
+```
+DuckBot Plugin (C++/ServerAPI)
+    │
+    ├── Hooks into AShooterGameMode + AShooterPlayerController
+    ├── 39 chat commands → parse user intent
+    ├── Sends game events to MCP bridge (tame, born, death, level up, chat)
+    │
+    ▼
+DuckBot MCP Bridge (Python) ← based on sheldon-mcp-bridge
+    │
+    ├── WebSocket server (plugin connects as client)
+    ├── Permission enforcement (role tiers: user/vip/mod/admin)
+    ├── Tool registry (spawn, teleport, kit, economy, tribe ops)
+    ├── Agentic loop → LLM provider
+    │
+    ▼
+LLM Provider (Anthropic / OpenAI / Gemini / OpenRouter)
+```
 
-For server operators who want a **command-driven** admin bot with no AI overhead:
-
-- 39 slash commands (`/tribe`, `/kits`, `/kit`, `/bal`, `/daily`, `/work`, `/home`, `/warp`, `/kibble`, etc.)
-- Tribe management, dino tracking, breeding alerts
-- Economy: daily rewards, work rewards, balance, pay, coinflip
-- Teleport system: home, warp, tpr, tpaccept, tphere
-- Moderation: kick, ban, unban, mute, unmute, slay, slayplayer
-- Kit system with cooldowns and permission gates
-- Event system and drop party hosting
-- AI brain status (`/aibrain`, `/aireset`)
-- MCP WebSocket bridge to sheldon-mcp-bridge for AI events
-- Built with **ServerAPI / AsaApi** (NOT Oxide)
-
-**See [plugin/README.md](plugin/README.md) for full DuckBot plugin docs.**
+The **LLM is the brain** — DuckBot plugin sends structured events, the MCP bridge runs an agent loop that decides what to do and executes via tools. Players interact via `/` commands or natural language through the bridge.
 
 ---
 
-### Option B — sheldon-ai-for-ark Blueprint Mod (DevKit/UE5)
+## How It Works
 
-For server operators who want a **natural language** AI assistant:
+1. **DuckBot plugin** intercepts game events via ServerAPI hooks and sends them to the bridge via WebSocket
+2. **MCP bridge** maintains player state, enforces permissions, and runs an agent loop
+3. **LLM** processes player requests and decides which tools to call
+4. **Tools** execute game actions (spawn, teleport, give items, etc.) on behalf of players within their permission tier
 
-- Press **F8** in-game, type any question or command in plain English
-- ARK encyclopedia, dino stats, spawn locations, taming strategies
-- Breeding calculators, crafting recipes, map navigation
-- Server info, rates, rules, online players
-- Dino spawning, item giving, teleportation — all from plain English
-- Multi-LLM support: Anthropic, OpenAI, Google Gemini, OpenRouter
-- Permission system enforced in deterministic code (LLM cannot bypass)
+This is a direct port/re-creation of the [ArkAscendedAI/sheldon-ai-for-ark](https://github.com/ArkAscendedAI/sheldon-ai-for-ark) concept from Blueprint/UE5 to **ServerAPI C++**, keeping the same AI bridge pattern but using AsaApi instead of DevKit.
 
 ---
 
-## How They Work Together
+## Components
 
-```
-DuckBot Plugin (C++/ServerAPI)              sheldon-ai-for-ark Blueprint Mod
-        │                                            │
-        │         ┌──────────────────┐              │
-        │         │sheldon-mcp-bridge│◄─────────────┘
-        └────────►│  (Python server) │
-        WebSocket │                  │         WebSocket
-                   │  Permission     │
-                   │  enforcement    │
-                   │  Tool registry  │──────────► LLM Provider
-                   │  Agentic loop   │         (Anthropic/OpenAI/Gemini)
-                   └──────────────────┘
-```
-
-- Both DuckBot plugin and sheldon Blueprint Mod connect to the **same sheldon-mcp-bridge**
-- DuckBot sends game events (tame, born, death, level up) to the bridge via WebSocket
-- sheldon Blueprint handles natural language queries via the same bridge
-- Tribe data from DuckBot feeds the AI brain via MCP events
+| Component | Description | Technology |
+|-----------|-------------|------------|
+| **[DuckBot Plugin](plugin/)** | ServerAPI C++ mod. Hooks, 39 commands, MCP WebSocket client, game event emission. | C++ / AsaApi / ServerAPI |
+| **[MCP Bridge](mcp-bridge/)** | Python AI agent server. Permission enforcement, tool registry, LLM integration. | Python 3.12+ |
+| **[Blueprint Mod](mod/)** | (Future) In-game F8 UI for natural language input | ASA DevKit (UE5) |
 
 ---
 
-## Quick Start
+## Building
 
-### 1. Install the Bridge
+1. Install Visual Studio 2022 with C++ desktop development workload
+2. Clone ARK ServerAPI SDK as a **sibling directory**:
+   ```
+   cd "C:/Users/franz/OneDrive/Desktop/ARK Mod"
+   git clone https://github.com/ArkServerApi/AsaApi.git
+   ```
+   Expected structure:
+   ```
+   ARK Mod/
+   ├── duckbot-ai-for-ark/plugin/      ← your plugin
+   │   └── DuckBot.vcxproj
+   └── AsaApi/                         ← sibling SDK
+       └── AsaApi/Core/Public/API/...
+   ```
+3. Open `plugin/DuckBot.sln` in Visual Studio 2022
+4. Build → Build Solution (Release x64)
+5. Output: `plugin/Binaries/Release/DuckBot.dll`
+6. Copy `DuckBot.dll` to server's `ArkApi/Plugins/DuckBot/` directory
+
+---
+
+## MCP Bridge (Python)
+
+The MCP bridge is based on [sheldon-mcp-bridge](https://github.com/ArkAscendedAI/sheldon-ai-for-ark/tree/main/mcp-bridge):
 
 ```bash
-pip install sheldon-bridge
+cd mcp-bridge
+pip install -e .
+sheldon-bridge run
 ```
 
-Or with Docker:
-
-```bash
-docker pull ghcr.io/arkascendedai/sheldon-ai-for-ark:latest
-```
-
-### 2. Configure
-
-```bash
-sheldon-bridge init
-```
+### Configuration
 
 ```json
 {
   "llm": {
     "provider": "openrouter",
-    "api_key": "your-api-key-here"
+    "api_key": "your-api-key"
   },
   "auth": {
-    "shared_secret": "auto-generated-during-init"
+    "shared_secret": "your-secret"
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8443
   }
 }
 ```
 
-See `examples/config.advanced.json` for all available options.
+### LLM Providers
 
-### 3. Install the Mod
+| Provider | Notes |
+|----------|-------|
+| **OpenRouter** | 200+ models, pay-per-token |
+| **Anthropic** | claude-3-5-sonnet, claude-3-haiku |
+| **OpenAI** | GPT-4o, GPT-4 Turbo |
+| **Google** | Gemini 2.0 Flash/Pro |
 
-Subscribe to **SheldonAI** on CurseForge and add it to your server's mod list.
+### Permission Tiers
 
-Add to your `GameUserSettings.ini`:
-
-```ini
-[SheldonAI]
-WebSocketURL=wss://your-server:8443/sheldon
-AuthSecret=your-generated-secret
-```
-
-### 4. Run
-
-```bash
-sheldon-bridge run
-```
+| Tier | Access |
+|------|--------|
+| `user` | Chat, tribe info, dino status, kits, economy |
+| `vip` | Extended kits, marker management |
+| `mod` | Kick, mute, slay, warp management |
+| `admin` | Ban, unban, drop party, event management, AI brain control |
 
 ---
 
-## DuckBot Plugin Commands (39 total)
+## Commands (39 total)
 
-All commands prefixed with `/` (ServerAPI chat command system):
+All commands prefixed with `/`:
 
 | Command | Description | Permission |
 |---------|-------------|------------|
@@ -174,107 +176,76 @@ All commands prefixed with `/` (ServerAPI chat command system):
 | `/status` | Plugin status and stats | admin |
 | `/help` | Show all commands | use |
 
-**See [plugin/README.md](plugin/README.md) for full building instructions.**
+---
+
+## Hooks Used (6 registered)
+
+| Hook | Purpose |
+|------|---------|
+| `AShooterGameMode.HandleNewPlayer_Implementation` | Player join → init player data + MCP event |
+| `AShooterGameMode.HandlePlayerLogout_Implementation` | Player leave → save data + MCP event |
+| `AShooterGameMode.OnDinoTamed_Implementation` | Dino tame → MCP event |
+| `AShooterGameMode.OnBabyBorn_Implementation` | Breeding → MCP event |
+| `AShooterGameMode.OnDinoDied_Implementation` | Dino death → MCP event |
+| `AShooterPlayerController.HandlePlayerLevelUp_Implementation` | Level up → update + MCP event |
 
 ---
 
-## Features
+## Configuration
 
-### For Players (No Admin Required)
-- **ARK Encyclopedia** — dino stats, spawn locations, taming strategies, breeding info
-- **Taming & Breeding Calculators** — "How much mutton for a level 150 Rex?"
-- **Crafting Recipes** — ingredients, workstations, engram requirements
-- **Map Navigation** — "Where's the nearest metal-rich area?"
-- **Personal Tame Tracking** — "Where's my Argentavis?"
-- **Server Info** — rates, rules, mods, online players
+Config file: `ArkApi/Data/DuckBot/config.json`
 
-### For Admins (Tier-Based Permissions)
-- **Natural Language Server Control** — "Make it morning", "Spawn me a Rex"
-- **World Queries** — "How many wild Rexes on the map?"
-- **Player Management** — teleport, give items, kick, ban
-- **Dino Spawning** — species, level, gender, position — all from plain English
-- **Broadcasts** — "Tell everyone the server restarts in 15 minutes"
-
-### Architecture Highlights
-- **Multi-LLM Support** — Anthropic, OpenAI, Google Gemini, or any model via OpenRouter
-- **Inviolable Permission System** — enforced in deterministic code, not by the LLM ([details](docs/PERMISSIONS.md))
-- **Cross-Platform** — PC, Xbox, PS5 via CurseForge cloud cooking
-- **Custom UI** — dedicated in-game chat panel (F8), no admin required
-
----
-
-## Components
-
-| Component | Description | Technology |
-|-----------|-------------|------------|
-| **[DuckBot Plugin](plugin/)** | ServerAPI C++ mod with 39 commands, hooks, MCP bridge client | C++ / AsaApi / ServerAPI |
-| **[Sheldon Bridge](mcp-bridge/)** | Standalone AI agent server. Permission enforcement, agentic loop, multi-provider LLM support. | Python 3.12+ |
-| **[SheldonAI Mod](mod/)** | In-game Blueprint mod. Custom UI, WebSocket client, game queries, command execution. | ASA DevKit (UE5) |
-| **[Data](data/)** | ARK knowledge base — dinos, items, recipes, maps. Queryable by the LLM via tools. | JSON |
-
----
-
-## Permission System
-
-Sheldon uses a **three-layer permission model** where the LLM is treated as an untrusted component. Permissions are enforced in deterministic code — no amount of prompt injection or social engineering can bypass them.
-
-| Layer | Role | Trust Level |
-|-------|------|-------------|
-| **Mod** | Identity attestation (HMAC-signed player context) | Trusted |
-| **Bridge** | Permission enforcement (tool partitioning, validation, rate limiting) | Trusted |
-| **LLM** | Natural language understanding and UX | Untrusted |
-
-The LLM never sees tools above the player's permission tier. Admin tools don't exist in a regular player's session — there's nothing to exploit.
-
-**[Full Permission Architecture →](docs/PERMISSIONS.md)**
-
----
-
-## Supported LLM Providers
-
-| Provider | Configuration | Notes |
-|----------|--------------|-------|
-| **OpenRouter** | `"provider": "openrouter"` | 200+ models, pay-per-token, recommended for flexibility |
-| **Anthropic** | `"provider": "anthropic"` | Anthropic models directly |
-| **OpenAI** | `"provider": "openai"` | GPT-4o, GPT-4 Turbo |
-| **Google** | `"provider": "gemini"` | Gemini 2.0 Flash/Pro |
-
-Swap providers by changing two fields in your config. All providers use native tool/function calling — no prompt-based hacks.
-
----
-
-## Customization
-
-### Personality
-
-Create a `personality.md` file with your assistant's character:
-
-```markdown
-You are a helpful, knowledgeable ARK assistant. You speak with
-enthusiasm about dinosaurs and prehistoric survival.
+```json
+{
+  "MCP": {
+    "host": "localhost",
+    "port": 8443,
+    "auth_token": "your-secret"
+  },
+  "Economy": {
+    "daily_reward": 100,
+    "work_reward": 15,
+    "work_cooldown": 300
+  },
+  "Teleport": {
+    "cooldown": 30
+  },
+  "Kits": {
+    "default_cooldown": 3600
+  }
+}
 ```
 
-### Server Context
+---
 
-Drop markdown files into your `server-context/` directory to give the AI knowledge about your specific server — mods, rules, custom configurations, lore. The bridge loads these at startup.
+## Status
 
-### Custom Data
+**Conversion in progress — ServerAPI C++ plugin structure complete, MCP bridge adapting from sheldon-mcp-bridge.**
 
-Add JSON files to `data/custom/` for mod-specific dinos, items, or locations. The lookup tools automatically search custom data alongside vanilla.
+- [x] 39 chat commands implemented
+- [x] 6 game hooks registered
+- [x] MCP WebSocket bridge client (raw Winsock2, auto-reconnect)
+- [x] Economy: daily, work, balance, pay, coinflip
+- [x] Teleport: home, warp, tpr, tpaccept, tphere
+- [x] Moderation: kick, ban, unban, mute, unmute, slay, slayplayer
+- [x] Kit system: 5 default kits with cooldown
+- [x] Kibble recipes: 40+ species
+- [x] Event system: start/stop/list events, drop party
+- [x] JSON persistence (players, warps, markers, events)
+- [ ] MCP bridge Python server (based on sheldon-mcp-bridge, in progress)
+- [ ] Blueprint mod / natural language UI (future work)
 
 ---
 
-## Documentation
+## Reference Sources
 
-| Document | Description |
-|----------|-------------|
-| [DuckBot Plugin README](plugin/README.md) | Full DuckBot ServerAPI plugin docs (39 commands, hooks, building) |
-| [Architecture](docs/ARCHITECTURE.md) | System design, communication protocol, component overview |
-| [Permissions](docs/PERMISSIONS.md) | Security model, tier enforcement, attack vector analysis |
-| [Open Source](docs/OPEN-SOURCE.md) | Repository structure, distribution, extensibility |
+- **[ArkAscendedAI/sheldon-ai-for-ark](https://github.com/ArkAscendedAI/sheldon-ai-for-ark)** — original Blueprint/UE5 implementation
+- **[Franzferdinan51/sheldon-ai-for-ark](https://github.com/Franzferdinan51/sheldon-ai-for-ark)** — fork with MCP bridge Python code
+- **[Franzferdinan51/rust-duckbot-mod](https://github.com/Franzferdinan51/rust-duckbot-mod)** — Rust/Oxide reference for RustDuckBot AI pattern
+- **[ArkServerApi/AsaApi](https://github.com/ArkServerApi/AsaApi)** — ServerAPI SDK for ARK Survival Ascended
 
 ---
 
 ## License
 
-[MIT](LICENSE) — use it however you want.
+[MIT](LICENSE)
