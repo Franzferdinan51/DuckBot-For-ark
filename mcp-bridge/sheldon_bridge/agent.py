@@ -82,6 +82,10 @@ class Agent:
         tier = session.player.tier
         player_id = session.player.player_id
 
+        # Reset tool loop guardrail for fresh conversation turn
+        from sheldon_bridge.agent_guardrail import clear_guardrail
+        clear_guardrail(player_id)
+
         # Rate limit check
         allowed, reason = self.rate_limiter.check(player_id, tier, "requests")
         if not allowed:
@@ -272,6 +276,31 @@ class Agent:
                     tool_calls_made += 1
                     continue
 
+                # ─── Tool Loop Guardrail ─────────────────────────────────────────
+                from sheldon_bridge.agent_guardrail import get_guardrail, GuardrailDecision
+                guardrail = get_guardrail(player_id)
+                check = guardrail.check(tool_name, arguments)
+                if check.decision == GuardrailDecision.HALT:
+                    session.add_tool_result(
+                        tool_call.id,
+                        tool_name,
+                        json.dumps({"error": f"Tool circuit breaker: {check.reason}"}),
+                    )
+                    tool_calls_made += 1
+                    # Stop the loop — too many failures
+                    session.track_usage(total_input, total_output, total_cost)
+                    return AgentResult(
+                        response_text=f"I've been trying the same thing repeatedly and it's not working. Let's try a different approach.",
+                        tool_calls_made=tool_calls_made,
+                        iterations=iteration + 1,
+                        total_input_tokens=total_input,
+                        total_output_tokens=total_output,
+                        total_cost=total_cost,
+                        duration_ms=(time.time() - start_time) * 1000,
+                    )
+                elif check.decision == GuardrailDecision.WARN:
+                    logger.warning(f"[Guardrail] WARN on {tool_name}: {check.reason}")
+
                 # Execute the tool
                 try:
                     context = {
@@ -293,6 +322,7 @@ class Agent:
                     from sheldon_bridge.metrics import get_metrics
                     get_metrics().record_tool_call(tool_name, 0, error=False)
                     steps_log.append(tool_name)  # track for agent improver
+                    guardrail.record(tool_name, arguments, result_str, error=False)  # success — reset counters
 
                 except asyncio.TimeoutError:
                     logger.error(f"Tool '{tool_name}' timed out after {TOOL_EXECUTION_TIMEOUT}s")
@@ -303,6 +333,7 @@ class Agent:
                     )
                     from sheldon_bridge.metrics import get_metrics
                     get_metrics().record_tool_call(tool_name, TOOL_EXECUTION_TIMEOUT * 1000, error=True)
+                    guardrail.record(tool_name, arguments, "TIMEOUT", error=True)
 
                 except Exception as e:
                     logger.error(f"Tool '{tool_name}' raised {type(e).__name__}: {e}")
@@ -313,6 +344,7 @@ class Agent:
                     )
                     from sheldon_bridge.metrics import get_metrics
                     get_metrics().record_tool_call(tool_name, 0, error=True)
+                    guardrail.record(tool_name, arguments, str(e), error=True)
 
                 tool_calls_made += 1
 
