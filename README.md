@@ -8,10 +8,13 @@ This repo is a practical fork of the SheldonAI concept. Some Python package name
 
 - `plugin/`: ServerAPI plugin for ASA, built in Visual Studio.
 - `mcp-bridge/`: Python bridge with WebSocket server, tool registry, auth, sessions, metrics, audit logging, and LLM provider support.
+- [Ark-DuckBot-Desktop](https://github.com/Franzferdinan51/Ark-DuckBot-Desktop/tree/master): companion desktop app for managing and observing the bridge.
 - `mod/`: DevKit assets for an in-game UI path and map extension content.
 - `data/`: bundled ARK knowledge data used by the bridge.
 
 The bridge and plugin are the primary working path. The `mod/` directory is useful source material, but the repo is not just a Blueprint mod.
+
+The desktop companion is the operator-facing client for this stack. It keeps one connection to the ARK server for live map/player state and a second connection to the MCP bridge for AI chat, notifications, and quick actions. In practice, the mod and plugin provide the game-side data and command surface, while the desktop app gives you a persistent UI for monitoring and interacting with both.
 
 ## Architecture
 
