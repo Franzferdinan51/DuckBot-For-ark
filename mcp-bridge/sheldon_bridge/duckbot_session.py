@@ -218,7 +218,35 @@ class DuckBotSession:
                 persist_lines.append(f"- {evt.to_conversation_string()}")
             parts.append("\n" + "\n".join(persist_lines))
 
+        # Available skills (openclaw-inspired skill system)
+        skills_context = self._get_skills_context()
+        if skills_context:
+            parts.append(f"\n\n{skills_context}")
+
         return "\n\n".join(parts)
+
+    def _get_skills_context(self) -> str:
+        """Build the skills section for the system prompt."""
+        from sheldon_bridge.skills.registry import get_skill_registry
+
+        registry = get_skill_registry()
+        skills = registry.all()
+
+        if not skills:
+            return ""
+
+        skill_lines = ["## Available Skills\n\nSkills are multi-step workflows you can trigger. Use the execute_skill tool to run one."]
+        skill_lines.append("When a player describes what they want, consider if a skill would help better than individual tool calls.\n")
+
+        for skill in skills:
+            triggers = ", ".join(f'"{t}"' for t in skill.meta.triggers) if skill.meta.triggers else "none"
+            examples = "; ".join(f'"{e}"' for e in skill.meta.examples[:2]) if skill.meta.examples else "none"
+            skill_lines.append(
+                f"- **{skill.meta.name}**: {skill.meta.description} "
+                f"(triggers: {triggers}, examples: {examples})"
+            )
+
+        return "\n".join(skill_lines)
 
     def get_messages(self) -> list[dict]:
         """Get conversation history with game events injected as system context."""

@@ -28,6 +28,12 @@ from sheldon_bridge.tools.registry import ToolRegistry
 # Import tool modules to trigger @tool registration
 import sheldon_bridge.tools.knowledge  # noqa: F401
 import sheldon_bridge.tools.actions  # noqa: F401
+import sheldon_bridge.skills.tools  # noqa: F401
+from sheldon_bridge.skills.registry import get_skill_registry
+
+# Discover and register skills at startup
+_skills = get_skill_registry()
+_skills.discover()
 
 logger = logging.getLogger(__name__)
 
@@ -258,6 +264,28 @@ class BridgeServer:
                 "role": "system",
                 "content": f"[Game Event] {event_description}",
             })
+
+        # Check for auto-triggered skills (openclaw-inspired)
+        from sheldon_bridge.skills.registry import get_skill_registry
+        registry = get_skill_registry()
+        auto_skills = registry.get_for_event(event_type)
+        for skill in auto_skills:
+            logger.info(f"Auto-triggering skill '{skill.meta.name}' on event '{event_type}'")
+            try:
+                ctx = {
+                    "game_handler": self._game_handler,
+                    "player": session.player,
+                    "tribe_data": getattr(session, "_tribe_data", {}),
+                    "event_data": event_data,
+                }
+                result = await skill.execute(ctx)
+                # Inject skill result as system observation
+                session.add_assistant_message({
+                    "role": "system",
+                    "content": f"[Skill '{skill.meta.name}' triggered automatically] {result.message}",
+                })
+            except Exception as e:
+                logger.error(f"Auto-trigger skill '{skill.meta.name}' failed: {e}")
 
     async def _cleanup_loop(self) -> None:
         """Periodically clean up expired sessions and rate limiter data."""
