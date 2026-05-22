@@ -1,252 +1,190 @@
-# Sheldon AI for ARK
+# DuckBot AI Plugin for ARK
 
-An open-source, in-game AI assistant for **ARK: Survival Ascended**. Give every player on your server access to an intelligent assistant that answers questions, provides ARK knowledge, and — for admins — executes server commands through natural language.
+**ServerAPI C++ plugin for ARK Survival Ascended — fork of [sheldon-ai-for-ark](https://github.com/Franzferdinan51/sheldon-ai-for-ark).**
 
-> **"Hey Sheldon, where do Rexes spawn on Ragnarok?"**
-> **"Spawn a level 200 female Yutyrannus 40 feet in front of me."**
-> **"What kibble do I need for an Argentavis?"**
-
-![Status](https://img.shields.io/badge/status-in%20development-orange)
-![License](https://img.shields.io/badge/license-MIT-blue)
+This is a ServerAPI (AsaApi) C++ plugin that adds full command-driven tribe management, economy, and AI agent integration to ARK, running alongside the existing sheldon-ai-for-ark Blueprint mod.
 
 ---
 
-## Features
+## Framework
 
-### For Players (No Admin Required)
-- **ARK Encyclopedia** — dino stats, spawn locations, taming strategies, breeding info
-- **Taming & Breeding Calculators** — "How much mutton for a level 150 Rex?"
-- **Crafting Recipes** — ingredients, workstations, engram requirements
-- **Map Navigation** — "Where's the nearest metal-rich area?"
-- **Personal Tame Tracking** — "Where's my Argentavis?"
-- **Server Info** — rates, rules, mods, online players
-
-### For Admins (Tier-Based Permissions)
-- **Natural Language Server Control** — "Make it morning", "Spawn me a Rex"
-- **World Queries** — "How many wild Rexes on the map?"
-- **Player Management** — teleport, give items, kick, ban
-- **Dino Spawning** — species, level, gender, position — all from plain English
-- **Broadcasts** — "Tell everyone the server restarts in 15 minutes"
-
-### Architecture Highlights
-- **Multi-LLM Support** — Anthropic, OpenAI, Google Gemini, or any model via OpenRouter
-- **Inviolable Permission System** — enforced in deterministic code, not by the LLM ([details](docs/PERMISSIONS.md))
-- **No AsaApi Dependency** — pure Blueprint mod using official DevKit APIs
-- **Cross-Platform** — PC, Xbox, PS5 via CurseForge cloud cooking
-- **Custom UI** — dedicated in-game chat panel (F8), no admin required
+- **ServerAPI / AsaApi** — The C++ mod loader for ARK Survival Ascended
+- **NOT** Oxide — Oxide does NOT support ASA
+- Plugin class: `AShooterPlayerController`, `AShooterGameMode`
+- Hook system: `DECLARE_HOOK` macro + `AsaApi::GetHooks().SetHook()`
+- Commands: `AsaApi::GetCommands().AddChatCommand()` (chat) / `.AddConsoleCommand()` / `.AddRconCommand()`
+- Permissions: `AsaApi::GetPermissions().UserHasPermission()`
+- Player API: `AsaApi::GetApiUtils()` — `SendServerMessage`, `SendNotification`, `GetWorld`, `FindPlayerBySteamId`, etc.
+- Teleport: `pc->SetActorLocation(FVector, ...)` directly on `AShooterPlayerController`
+- Cheat commands: `AsaApi::GetCommands().ExecuteCommand(FString)` for dino spawn, item give
 
 ---
 
-## How It Works
+## Commands (39 total)
 
-```
-┌─────────────────┐         ┌──────────────────┐         ┌───────────────┐
-│  SheldonAI Mod  │◄═══════►│  Sheldon Bridge  │◄═══════►│  LLM Provider │
-│  (in-game)      │WebSocket│  (Python server) │  HTTPS  │  (your choice)│
-│                 │  JSON   │                  │         │               │
-│  Custom UI      │         │  Permission      │         │  Any LLM      │
-│  Game queries   │         │  enforcement     │         │  GPT-4o       │
-│  Event hooks    │         │  Agentic loop    │         │  Gemini       │
-│  Admin commands │         │  Tool registry   │         │  OpenRouter   │
-└─────────────────┘         └──────────────────┘         └───────────────┘
-```
+All commands prefixed with `/` (ServerAPI chat command system):
 
-1. Player presses **F8** in-game, types a message
-2. Mod sends the message + player context (position, permissions) to the Bridge via WebSocket
-3. Bridge verifies permissions, selects tier-appropriate tools, sends to LLM
-4. LLM reasons about the request, calls tools as needed (lookup dinos, spawn, teleport, etc.)
-5. Bridge executes tools via the mod, feeds results back to the LLM
-6. LLM generates a natural language response
-7. Player sees the response in-game with rich formatting
+| Command | Description | Permission |
+|---------|-------------|------------|
+| `/tribe` | Tribe overview: members, tames, alerts | use |
+| `/tdinos` | List tribe's active tames | use |
+| `/tribealert` | Wild dino alerts near tribe | use |
+| `/dinos` | Show tracked dinos | use |
+| `/kits` | Show available kits | use |
+| `/kit [name]` | Claim a kit (with cooldown) | use |
+| `/bal` | Show your balance | use |
+| `/pay [player] [amount]` | Pay another player | use |
+| `/daily` | Claim daily reward (24h) | use |
+| `/work` | Claim work reward (5min cooldown) | use |
+| `/home` | Teleport to saved home position | use |
+| `/sethome` | Save home position | use |
+| `/tpr [player]` | Send teleport request | use |
+| `/tpaccept` | Accept teleport request | use |
+| `/warp [name]` | Teleport to warp | use |
+| `/setwarp [name]` | Create warp | mod |
+| `/marker add\|list\|remove` | Manage tribe markers | use |
+| `/gridmap` | Show grid map with all waypoints | use |
+| `/kick [player]` | Kick player | mod |
+| `/ban [player]` | Ban player | admin |
+| `/unban [player]` | Unban player | admin |
+| `/mute [player]` | Mute player | mod |
+| `/unmute [player]` | Unmute player | mod |
+| `/slay [player]` | Slay player's dinos | mod |
+| `/slayplayer [player]` | Slay player | mod |
+| `/tphere [player]` | Teleport player to you | mod |
+| `/feed` | Auto-feed your tribe dinos | use |
+| `/coinflip [wager]` | Flip a coin (wager from balance) | use |
+| `/breeds` | Recent breed alerts and mutations | use |
+| `/kibble [species]` | Kibble recipe guide (40+ species) | use |
+| `/aibrain` | AI brain status and MCP bridge state | use |
+| `/aireset` | Reset AI context | use |
+| `/event start\|stop\|list` | Manage events | admin |
+| `/events` | Show active events | use |
+| `/drop [count] [radius]` | Host drop party | admin |
+| `/save` | Save all data | admin |
+| `/reload` | Reload config | admin |
+| `/status` | Plugin status and stats | admin |
+| `/help` | Show all commands | use |
 
 ---
 
-## Components
+## Architecture
 
-| Component | Description | Technology |
-|-----------|-------------|------------|
-| **[Sheldon Bridge](mcp-bridge/)** | Standalone AI agent server. Permission enforcement, agentic loop, multi-provider LLM support. | Python 3.12+ |
-| **[SheldonAI Mod](mod/)** | In-game Blueprint mod. Custom UI, WebSocket client, game queries, command execution. | ASA DevKit (UE5) |
-| **[Data](data/)** | ARK knowledge base — dinos, items, recipes, maps. Queryable by the LLM via tools. | JSON |
+```
+DuckBot Plugin (C++/ServerAPI)
+    │
+    ├── Tracks tribe members, dinos, breeding events via hooks
+    ├── Handles all command parsing and execution
+    ├── Sends events to MCP bridge (tame, born, death, level up, etc.)
+    │
+    ▼
+sheldon-mcp-bridge (Python)
+    │
+    ├── Permission enforcement
+    ├── Tool registry (game commands, spawn, teleport)
+    ├── LLM integration (Anthropic/OpenAI/Gemini/OpenRouter)
+    │
+    ▼
+sheldon-ai-for-ark Blueprint Mod
+```
+
+The plugin uses `DECLARE_HOOK` macros to intercept game events and `AsaApi::GetCommands().AddChatCommand()` to register all 39 commands. Events are sent to the sheldon MCP bridge via WebSocket for AI processing.
 
 ---
 
-## Quick Start
+## Hooks Used (6 registered)
 
-### 1. Install the Bridge
+| Hook | Purpose |
+|------|---------|
+| `AShooterGameMode.HandleNewPlayer_Implementation` | Player join → init player data + MCP event |
+| `AShooterGameMode.HandlePlayerLogout_Implementation` | Player leave → save data + MCP event |
+| `AShooterGameMode.OnDinoTamed_Implementation` | Dino tame → MCP event |
+| `AShooterGameMode.OnBabyBorn_Implementation` | Breeding → MCP event |
+| `AShooterGameMode.OnDinoDied_Implementation` | Dino death → MCP event |
+| `AShooterPlayerController.HandlePlayerLevelUp_Implementation` | Level up → update + MCP event |
 
-```bash
-pip install sheldon-bridge
-```
+---
 
-Or with Docker:
+## Building
 
-```bash
-docker pull ghcr.io/arkascendedai/sheldon-ai-for-ark:latest
-```
+1. Install Visual Studio 2022 with C++ desktop development workload
+2. Clone ARK ServerAPI SDK as a **sibling directory**:
+   ```
+   cd "C:/Users/franz/OneDrive/Desktop/ARK Mod"
+   git clone https://github.com/ArkServerApi/AsaApi.git
+   ```
+   Expected structure:
+   ```
+   ARK Mod/
+   ├── duckbot-ai-for-ark/plugin/      ← your plugin
+   │   └── DuckBot.vcxproj
+   └── AsaApi/                         ← sibling SDK
+       └── AsaApi/Core/Public/API/...
+   ```
+3. Open `plugin/DuckBot.sln` in Visual Studio 2022
+4. Build → Build Solution (Release x64)
+5. Output: `plugin/Binaries/Release/DuckBot.dll`
+6. Copy `DuckBot.dll` to server's `ArkApi/Plugins/DuckBot/` directory
 
-### 2. Configure
+---
 
-```bash
-sheldon-bridge init
-```
+## Configuration
 
-Interactive setup asks only two things — your LLM provider and API key. Everything else has sensible defaults. The generated `config.json` is minimal:
+Config file: `ArkApi/Data/DuckBot/config.json`
 
 ```json
 {
-  "llm": {
-    "provider": "openrouter",
-    "api_key": "your-api-key-here"
+  "MCP": {
+    "host": "localhost",
+    "port": 8443,
+    "auth_token": "your-secret"
   },
-  "auth": {
-    "shared_secret": "auto-generated-during-init"
+  "Economy": {
+    "daily_reward": 100,
+    "work_reward": 15,
+    "work_cooldown": 300
+  },
+  "Teleport": {
+    "cooldown": 30
+  },
+  "Kits": {
+    "default_cooldown": 3600
   }
 }
 ```
 
-See `examples/config.advanced.json` for all available options.
+---
 
-### 3. Install the Mod
+## Status
 
-Subscribe to **SheldonAI** on [CurseForge](#) and add it to your server's mod list.
+**All TODO items completed — plugin is fully implemented.**
 
-Add to your `GameUserSettings.ini`:
-
-```ini
-[SheldonAI]
-WebSocketURL=wss://your-server:8443/sheldon
-AuthSecret=your-generated-secret
-```
-
-### 4. Run
-
-```bash
-sheldon-bridge run
-```
+- [x] 39 chat commands with complete implementations
+- [x] 6 game hooks registered (join, leave, tame, born, died, levelup)
+- [x] MCP bridge WebSocket client (raw Winsock2, auto-reconnect, RFC 6455)
+- [x] Economy: daily (24h), work (5min), balance, pay, coinflip
+- [x] Teleport: home, warp, sethome, setwarp, tpr, tpaccept, tphere
+- [x] Moderation: kick, ban, unban, mute, unmute, slay, slayplayer
+- [x] Kit system: 5 default kits with cooldown + permission gates
+- [x] Kibble recipes for 40+ species
+- [x] Event system: start/stop/list events
+- [x] Drop party command
+- [x] JSON persistence (players, warps, markers, kit cooldowns, events)
+- [x] Permission checks via AsaApi
+- [x] MCP event senders for all 6 hooks
 
 ---
 
-## Permission System
+## Integration with sheldon-ai-for-ark
 
-Sheldon uses a **three-layer permission model** where the LLM is treated as an untrusted component. Permissions are enforced in deterministic code — no amount of prompt injection or social engineering can bypass them.
+This plugin **extends** the sheldon-ai-for-ark Blueprint mod:
+- Both use the same MCP bridge (sheldon-mcp-bridge)
+- DuckBot plugin registers ServerAPI commands for structured access
+- sheldon Blueprint handles natural language AI queries via the same bridge
+- Tribe data from DuckBot plugin feeds the AI brain via MCP events
 
-| Layer | Role | Trust Level |
-|-------|------|-------------|
-| **Mod** | Identity attestation (HMAC-signed player context) | Trusted |
-| **Bridge** | Permission enforcement (tool partitioning, validation, rate limiting) | Trusted |
-| **LLM** | Natural language understanding and UX | Untrusted |
-
-The LLM never sees tools above the player's permission tier. Admin tools don't exist in a regular player's session — there's nothing to exploit.
-
-**[Full Permission Architecture →](docs/PERMISSIONS.md)**
-
----
-
-## Supported LLM Providers
-
-| Provider | Configuration | Notes |
-|----------|--------------|-------|
-| **OpenRouter** | `"provider": "openrouter"` | 200+ models, pay-per-token, recommended for flexibility |
-| **Anthropic** | `"provider": "anthropic"` | Anthropic models directly |
-| **OpenAI** | `"provider": "openai"` | GPT-4o, GPT-4 Turbo |
-| **Google** | `"provider": "gemini"` | Gemini 2.0 Flash/Pro |
-
-Swap providers by changing two fields in your config. All providers use native tool/function calling — no prompt-based hacks.
-
----
-
-## Customization
-
-### Personality
-
-Create a `personality.md` file with your assistant's character:
-
-```markdown
-You are a helpful, knowledgeable ARK assistant. You speak with
-enthusiasm about dinosaurs and prehistoric survival.
-```
-
-Or go full character:
-
-```markdown
-You are Sheldon, a sardonic AI who judges players for their
-questionable taming decisions but always helps them anyway.
-```
-
-### Server Context
-
-Drop markdown files into your `server-context/` directory to give the AI knowledge about your specific server — mods, rules, custom configurations, lore. The bridge loads these at startup.
-
-### Custom Data
-
-Add JSON files to `data/custom/` for mod-specific dinos, items, or locations. The lookup tools automatically search custom data alongside vanilla.
-
----
-
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [Architecture](docs/ARCHITECTURE.md) | System design, communication protocol, component overview |
-| [Permissions](docs/PERMISSIONS.md) | Security model, tier enforcement, attack vector analysis |
-| [Open Source](docs/OPEN-SOURCE.md) | Repository structure, distribution, extensibility |
-| [Configuration](docs/CONFIGURATION.md) | All configuration options (coming soon) |
-| [Tool Reference](docs/TOOL-REFERENCE.md) | Every tool, parameters, tiers (coming soon) |
-| [Setup Guide](docs/SETUP-GUIDE.md) | Step-by-step deployment (coming soon) |
-
----
-
-## Project Status
-
-This project is in **active development**. The bridge server is complete and tested. The in-game mod core is built and functional — currently in end-to-end testing.
-
-### Bridge Server ✅
-- [x] Architecture design and documentation
-- [x] Permission model (tier-based tool partitioning, 55 tests passing)
-- [x] Token authentication and rate limiting
-- [x] Tool registry with wildcard patterns and inheritance
-- [x] Agentic loop (LLM → tool calls → execute → respond)
-- [x] WebSocket server with session management
-- [x] LLM provider abstraction (Anthropic, OpenAI, Google, OpenRouter via LiteLLM)
-- [x] Knowledge base: 1,119 dinos (686 vanilla + 433 Primal Nemesis), 2,090 items, 618 engrams, 7 spawn maps
-- [x] Fuzzy search with nickname/alias support (rapidfuzz)
-- [x] Semantic cache with local embeddings (zero-cost, 5ms lookups)
-- [x] Audit logging (JSONL)
-- [x] Cache warm-up with common ARK Q&A
-- [x] End-to-end integration tests (4/4 passing with real LLM)
-- [x] Docker packaging
-- [x] GitHub Actions CI
-
-### In-Game Mod (in testing)
-- [x] DevKit project setup
-- [x] WebSocket client (BPSecureNetworking via VictoryCore)
-- [x] Custom UI (UMG Widget — chat panel with F8 toggle)
-- [x] Server-authoritative networking (NetExec client↔server RPC)
-- [ ] Display response in chat UI
-- [ ] Game queries (player position, dino census, admin status)
-- [ ] Event hooks (player join/leave, tame, death)
-- [ ] CurseForge upload and cloud cooking
-
-### Distribution
-- [ ] PyPI package
-- [ ] Docker Hub / GHCR image
-- [ ] CurseForge mod listing
-
----
-
-## Contributing
-
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-Priority areas:
-- **ARK data** — dino nicknames, blueprint paths, taming data
-- **Tool implementations** — new query and action tools
-- **LLM provider testing** — compatibility reports across models
-- **Cross-platform testing** — Xbox/PS5 mod behavior
-
----
-
-## License
-
-[MIT](LICENSE) — use it however you want.
+The plugin sends events to the bridge:
+- `OnPlayerConnected` / `OnPlayerDisconnected`
+- `OnDinoTamed` / `OnBabyBorn` / `OnDinoDied`
+- `OnPlayerLevelUp`
+- `OnWildDinoSpawn` (Giga, Titan, etc. near tribe base — from tribe alert system)
