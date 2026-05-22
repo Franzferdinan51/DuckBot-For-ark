@@ -758,7 +758,7 @@ ADMIN: /reload, /save, /status, /event
                 // Use cheat SpawnDino command to spawn the dino at player's location
                 FVector pos = pc->GetActorLocation();
                 std::ostringstream oss;
-                oss << "cheat SpawnDino " << found_kit->dino_species << " " << found_kit->dino_level << " " << static_cast<int>(pos.X) << " " << static_cast<int>(pos.Y) << " " << static_cast<int>(pos.Z);
+                oss << "cheat SpawnDino \"" << found_kit->dino_species << "\" " << found_kit->dino_level << " " << static_cast<int>(pos.X) << " " << static_cast<int>(pos.Y) << " " << static_cast<int>(pos.Z);
                 FString cheat_cmd(oss.str().c_str());
                 AsaApi::GetCommands().ExecuteCommand(cheat_cmd);
                 oss.str("");
@@ -791,6 +791,7 @@ ADMIN: /reload, /save, /status, /event
 
         // ─── TPR Pending Requests ─────────────────────────────────────────────────────
     static std::unordered_map<uint64, uint64> pending_tpr_; // requester_steamid → target_steamid
+    static std::mutex tpr_mutex_;
 
     void OnHome(AShooterPlayerController* pc, FString* cmd, bool) {
             uint64 steam_id = GetSteamIdFromPC(pc);
@@ -841,7 +842,10 @@ ADMIN: /reload, /save, /status, /event
 
             // Find target player by name (need to iterate connected players via ApiUtils)
             // For now store pending request
-            pending_tpr_[requester] = 0; // placeholder - needs target steamid resolved
+            {
+                std::lock_guard<std::mutex> lock(tpr_mutex_);
+                pending_tpr_[requester] = 0; // placeholder - needs target steamid resolved
+            }
             // Note: target player resolution requires iterating all connected
             // players via ApiUtils — simplified for now
             Plugin::Get()->SendReply(pc, "[DuckBot] Teleport request sent to " + target_name + ". They have 60s to /tpaccept");
@@ -852,8 +856,11 @@ ADMIN: /reload, /save, /status, /event
 
             // Find requester who sent TPR to this player
             uint64 requester = 0;
-            for (auto& [req, tgt] : pending_tpr_) {
-                if (tgt == target_steam) { requester = req; break; }
+            {
+                std::lock_guard<std::mutex> lock(tpr_mutex_);
+                for (auto& [req, tgt] : pending_tpr_) {
+                    if (tgt == target_steam) { requester = req; break; }
+                }
             }
 
             if (requester == 0) {
@@ -861,7 +868,10 @@ ADMIN: /reload, /save, /status, /event
                 return;
             }
 
-            pending_tpr_.erase(requester);
+            {
+                std::lock_guard<std::mutex> lock(tpr_mutex_);
+                pending_tpr_.erase(requester);
+            }
 
             // Find requester's player controller via ApiUtils
             auto* requester_pc = AsaApi::GetApiUtils().FindPlayerBySteamId(requester);
@@ -1124,7 +1134,7 @@ ADMIN: /reload, /save, /status, /event
             if (target->MyCharacterField().Get()) {
                 target->MyCharacterField().Get()->DestroyActor(false, false);
             }
-            Plugin::Get()->SendReply(pc, "[DuckBot] " + target_name + "'s dinos slain.");
+            Plugin::Get()->SendReply(pc, "[DuckBot] " + target_name + " killed.");
         }
 
         void OnSlayPlayer(AShooterPlayerController* pc, FString* cmd, bool) {
@@ -1174,7 +1184,6 @@ ADMIN: /reload, /save, /status, /event
                 return;
             }
             // Use cheat command to force feed all tribe dinos owned by this player
-            uint64 steam_id = GetSteamIdFromPC(pc);
             FString cheat_cmd = FString(L"cheat FeedTribe ") + FString(std::to_string(steam_id).c_str());
             AsaApi::GetCommands().ExecuteCommand(cheat_cmd);
 
@@ -1188,6 +1197,7 @@ ADMIN: /reload, /save, /status, /event
                 Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /kibble [dino species]");
                 return;
             }
+            std::string species = parsed.IsValidIndex(1) ? std::string(*parsed[1]) : "";
             std::string species_lower = species;
             std::transform(species_lower.begin(), species_lower.end(), species_lower.begin(), ::tolower);
 
@@ -1332,11 +1342,6 @@ ADMIN: /reload, /save, /status, /event
             std::ostringstream oss;
             oss << "[DuckBot] Work done! +" << Plugin::Get()->GetConfig().work_reward << " points";
             Plugin::Get()->SendReply(pc, oss.str());
-        }
-
-        void OnDrop(AShooterPlayerController* pc, FString* cmd, bool) {
-            if (!Plugin::Get()->HasPermission(pc, PERM_ADMIN)) return;
-            Plugin::Get()->SendReply(pc, "[DuckBot] Drop party started! (not yet implemented)");
         }
 
         void OnSave(AShooterPlayerController* pc, FString* cmd, bool) {

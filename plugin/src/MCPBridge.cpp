@@ -29,7 +29,7 @@ namespace DuckBot
         // Actually we'll use a simpler approach: Windows built-in crypto API
         HCRYPTPROV prov = 0;
         if (CryptAcquireContext(&prov, nullptr, nullptr, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
-           HCRYPTHASH hash = 0;
+            HCRYPTHASH hash = 0;
             if (CryptCreateHash(prov, CALG_SHA1, 0, 0, &hash)) {
                 CryptHashData(hash, data, len, 0);
                 DWORD hashLen = 20;
@@ -37,9 +37,10 @@ namespace DuckBot
                 CryptDestroyHash(hash);
             }
             CryptReleaseContext(prov, 0);
+        } else {
+            // Crypto API unavailable — fail loudly rather than silently return zeros
+            memset(out, 0, 20);
         }
-        // Fallback: zero out
-        memset(out, 0, 20);
     }
 
     // ─── WebSocket Frame ───────────────────────────────────────────────────
@@ -265,6 +266,7 @@ namespace DuckBot
     void MCPBridgeClient::SendThread() {
         while (running_) {
             std::string next_msg;
+            bool can_send = false;
             {
                 std::unique_lock<std::mutex> lock(send_mutex_);
                 send_cv_.wait_for(lock, std::chrono::seconds(1), [this] {
@@ -272,14 +274,14 @@ namespace DuckBot
                 });
                 if (!running_) break;
                 if (send_queue_.empty()) continue;
-                // Build JSON from message
                 auto& msg = send_queue_.front();
                 // The event type is stored inside the JSON data as "event" field
                 std::string json = "{\"type\":\"" + msg.type + "\",\"data\":" + msg.data + ",\"request_id\":" + std::to_string(msg.request_id) + "}";
                 send_queue_.erase(send_queue_.begin());
+                can_send = connected_;
                 next_msg = std::move(json);
             }
-            if (!next_msg.empty() && connected_) {
+            if (can_send && !next_msg.empty()) {
                 auto frame = BuildWSFrame(next_msg);
                 int sent = send(socket_, reinterpret_cast<const char*>(frame.data()), static_cast<int>(frame.size()), 0);
                 if (sent < 0) {

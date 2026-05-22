@@ -160,19 +160,46 @@ async def give_item(
     }
 
 
+# Whitelist of safe ARK console commands (no player-targeted injection risk)
+ALLOWED_COMMANDS = frozenset({
+    "saveworld", "destroywilddinos", "killplayer", "slayplayer",
+    "broadcast", "serverchat", "acceptplayer", "踢", "removeplayerfromtribe",
+    "settimeofday", "servercfggfps", "makeittame", "giveengrams",
+    "disableplayer", "enableplayer", "listplayers", "showfastestresponsetimes",
+    "toggledebugcam", "exit", "quit", "shutdown", "RCON", "togglescriptmesh",
+    "setcheatplayer", "allowcheats", "clearinventory", "confirmedexit",
+})
+
+# Characters that are dangerous in broadcast/console command args
+_DANGEROUS_CHARS = frozenset({'"', '\n', '\r', '\\'})
+
+def _sanitize_arg(arg: str) -> str:
+    """Strip dangerous characters from a command argument."""
+    return "".join(c for c in arg if c not in _DANGEROUS_CHARS)
+
+
 @tool(tier="admin", description="Execute a raw console command on the server")
 async def execute_console_command(
     command: str, ctx: dict | None = None
 ) -> dict[str, Any]:
-    """Execute any admin console command on the ARK server.
+    """Execute an admin console command on the ARK server.
 
-    Use this as a fallback when no specific tool exists for what you need.
-    The command should be a valid ARK admin console command.
+    The command must be on the whitelist. This prevents command injection
+    when the LLM generates the command string.
 
     Args:
         command: The full console command string (e.g., "destroywilddinos", "saveworld")
         ctx: Injected context with game handler.
     """
+    # Validate command is whitelisted (first word is the command name)
+    first_word = command.strip().split()[0].lower() if command.strip() else ""
+    if first_word not in ALLOWED_COMMANDS:
+        return {
+            "success": False,
+            "error": f"Command '{first_word}' is not in the allowed whitelist. "
+                     "Available: " + ", ".join(sorted(ALLOWED_COMMANDS)),
+        }
+
     game_command = {
         "action": "console_command",
         "command": command,
@@ -197,9 +224,11 @@ async def broadcast(message: str, ctx: dict | None = None) -> dict[str, Any]:
         message: The message text to broadcast.
         ctx: Injected context with game handler.
     """
+    # Escape newlines and backslashes to prevent format string exploits
+    safe_message = _sanitize_arg(message)
     command = {
         "action": "console_command",
-        "command": f'broadcast {message}',
+        "command": f'broadcast {safe_message}',
     }
 
     game_handler = ctx.get("game_handler") if ctx else None
