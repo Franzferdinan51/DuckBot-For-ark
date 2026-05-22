@@ -24,6 +24,7 @@ Usage:
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
 from dataclasses import dataclass, field
@@ -142,7 +143,13 @@ class DuckBotSession:
 
         logger.debug(f"Game event recorded: {event_type} — {data}")
 
-    def mark_event_persistent(self, event_type: str, data: dict) -> None:
+    def mark_event_persistent(
+        self,
+        event_type: str,
+        data: dict,
+        steam_id: int = 0,
+        player_name: str = "",
+    ) -> None:
         """Mark an event type/data combo as high-priority (survives truncation).
 
         Use this for events the AI absolutely must remember, like a Giganotosaurus
@@ -152,6 +159,8 @@ class DuckBotSession:
             event_type=event_type,
             data=data,
             timestamp=time.time(),
+            steam_id=steam_id,
+            player_name=player_name,
         )
         self._persist_events.append(event)
 

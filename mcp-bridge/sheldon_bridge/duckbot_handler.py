@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -53,6 +54,7 @@ class CommandQueue:
             if len(self._queue) >= self._max_size:
                 # Drop oldest command
                 self._queue.pop(0)
+            command.enqueued_at = time.time()
             self._queue.append(command)
             logger.debug(f"Command queued: {command.action} [{command.id}]")
             return command.id

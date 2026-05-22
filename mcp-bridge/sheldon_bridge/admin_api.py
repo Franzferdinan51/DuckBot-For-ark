@@ -163,6 +163,7 @@ class AdminServer:
             return
 
         if legacy_type == "position_update":
+            # Acknowledge position updates silently — world context is updated elsewhere
             return
 
         if legacy_type == "player_message":
@@ -333,7 +334,7 @@ class AdminServer:
                     "name": skill.meta.name,
                     "description": skill.meta.description,
                     "auto_triggers": skill.meta.auto_trigger_on or [],
-                    "tier": skill.meta.tier,
+                    "tier": skill.meta.tier_required,
                 })
             await session.websocket.send(json.dumps({
                 "type": "skill_list", "skills": skills
@@ -400,10 +401,6 @@ class AdminServer:
                 "type": "subscribed", "category": "world"
             }))
             return
-
-            await session.websocket.send(json.dumps({
-                "type": "error", "error": f"Unknown command: {cmd}"
-            }))
 
     @staticmethod
     def _extract_request_id(msg: dict):

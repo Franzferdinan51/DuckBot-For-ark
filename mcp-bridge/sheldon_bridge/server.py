@@ -221,6 +221,25 @@ class BridgeServer:
                 facing_yaw=facing_yaw,
             )
 
+        elif msg_type == "tool_call":
+            # C++ plugin polling for queued commands (e.g., get_pending_commands)
+            tool_name = msg.get("name", "")
+            if tool_name == "get_pending_commands":
+                from sheldon_bridge.duckbot_handler import get_pending_commands
+                result = await get_pending_commands(ctx=None)
+                await websocket.send(json.dumps({
+                    "type": "tool_result",
+                    "name": tool_name,
+                    "result": result,
+                }))
+            else:
+                logger.warning(f"Unknown tool_call: {tool_name}")
+                await websocket.send(json.dumps({
+                    "type": "tool_result",
+                    "name": tool_name,
+                    "result": {"success": False, "error": f"Unknown tool: {tool_name}"},
+                }))
+
         elif msg_type == "tool_response":
             # Game mod responding to a tool request (future use)
             pass
@@ -312,9 +331,8 @@ class BridgeServer:
 
         # ── QUERY: lightweight LLM response (no tools, fast) ───────────────
         if intent.intent_type == IntentType.QUERY:
-            await websocket.send(json.dumps({"type": "thinking"}))
-            if request_id is not None:
-                await websocket.send(json.dumps(self._with_request_id({"type": "thinking"}, request_id)))
+            thinking = {"type": "thinking"}
+            await websocket.send(json.dumps(self._with_request_id(thinking, request_id)))
 
             async def stream_send(msg: dict) -> None:
                 if request_id is not None:

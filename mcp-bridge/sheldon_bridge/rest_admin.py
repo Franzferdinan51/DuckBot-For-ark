@@ -39,6 +39,10 @@ def create_rest_app(config: BridgeConfig, game_server_ref) -> web.Application:
     authenticator = TokenAuthenticator(config.shared_secret)
     game = game_server_ref  # BridgeServer instance
 
+    # Store config in app dict so route handlers can access it
+    app = web.Application()
+    app["config"] = config
+
     routes = web.RouteTableDef()
 
     # ─── Health ──────────────────────────────────────────────────────────
@@ -361,7 +365,8 @@ def create_rest_app(config: BridgeConfig, game_server_ref) -> web.Application:
         if err:
             return err
 
-        return web.json_response(dict(config.ark))
+        cfg = request.app["config"]
+        return web.json_response(dict(cfg.ark))
 
     @routes.get("/config/{key}")
     async def config_get(request: web.Request) -> web.Response:
@@ -370,7 +375,8 @@ def create_rest_app(config: BridgeConfig, game_server_ref) -> web.Application:
             return err
 
         key = request.match_info["key"]
-        val = config.ark.get(key)
+        cfg = request.app["config"]
+        val = cfg.ark.get(key)
         if val is None:
             return web.json_response({"error": f"Key '{key}' not found"}, status=404)
         return web.json_response({"key": key, "value": val})
@@ -388,7 +394,8 @@ def create_rest_app(config: BridgeConfig, game_server_ref) -> web.Application:
             return web.json_response({"error": "Invalid JSON body"}, status=400)
 
         value = body.get("value")
-        config.ark[key] = value  # Note: in-memory only, not persisted
+        cfg = request.app["config"]
+        cfg.ark[key] = value  # Note: in-memory only, not persisted
 
         return web.json_response({
             "success": True,

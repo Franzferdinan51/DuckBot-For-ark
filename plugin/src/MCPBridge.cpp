@@ -48,12 +48,19 @@ namespace DuckBot
         std::vector<unsigned char> frame;
         frame.push_back(0x81); // FIN + text frame
         size_t len = text.size();
-        const unsigned char mask_key[4] = {
-            static_cast<unsigned char>(rand() & 0xFF),
-            static_cast<unsigned char>(rand() & 0xFF),
-            static_cast<unsigned char>(rand() & 0xFF),
-            static_cast<unsigned char>(rand() & 0xFF),
-        };
+
+        // Generate mask key using Windows CSPRNG (CryptGenRandom)
+        unsigned char mask_key[4];
+        HCRYPTPROV prov = 0;
+        if (CryptAcquireContext(&prov, nullptr, nullptr, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
+            CryptGenRandom(prov, 4, mask_key);
+            CryptReleaseContext(prov, 0);
+        } else {
+            // Fallback only if crypto API fails (should never happen on Windows)
+            srand(static_cast<unsigned>(time(nullptr)));
+            for (int i = 0; i < 4; ++i) mask_key[i] = static_cast<unsigned char>(rand() & 0xFF);
+        }
+
         if (len < 126) {
             frame.push_back(static_cast<unsigned char>(len) | 0x80);
         } else if (len < 65536) {
@@ -285,7 +292,7 @@ namespace DuckBot
                 auto& msg = send_queue_.front();
                 std::string json;
                 if (msg.type == "position_update") {
-                    json = msg.data;
+                    json = "{\"type\":\"position_update\",\"data\":" + msg.data + "}";
                 } else {
                     json = "{\"type\":\"" + msg.type + "\",\"data\":" + msg.data + ",\"request_id\":" + std::to_string(msg.request_id) + "}";
                 }
@@ -311,6 +318,8 @@ namespace DuckBot
             msg.data = j.value("data", "{}");
             msg.request_id = j.value("request_id", 0);
             if (message_handler_) message_handler_(msg);
+        } catch (const std::exception& e) {
+            Logger::Error("MCPBridge: JSON parse error: %s", e.what());
         } catch (...) {
             // Ignore parse errors
         }

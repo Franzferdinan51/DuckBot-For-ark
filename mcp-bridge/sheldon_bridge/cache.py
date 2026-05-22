@@ -183,7 +183,7 @@ class SemanticCache:
         if time.time() - entry.created_at > entry.ttl:
             self._evict(best_idx)
             self.stats.misses += 1
-            return None, best_score
+            return None, 0.0
 
         # Check threshold
         if best_score >= self.threshold:
