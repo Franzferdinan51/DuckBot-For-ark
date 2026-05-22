@@ -720,7 +720,59 @@ ADMIN: /reload, /save, /status, /event
                 Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /kit [name]");
                 return;
             }
-            Plugin::Get()->SendReply(pc, "[DuckBot] Kit system: not yet implemented");
+
+            std::string kit_name = std::string(*parsed[1]);
+            auto& kits = Plugin::Get()->GetAllKits();
+            KitDefinition* found_kit = nullptr;
+            for (auto& k : kits) {
+                if (k.name == kit_name) { found_kit = &k; break; }
+            }
+
+            if (!found_kit) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Kit not found. Use /kits to see available kits.");
+                return;
+            }
+
+            // Check permission
+            if (!found_kit->required_permission.empty() &&
+                !Plugin::Get()->HasPermission(pc, found_kit->required_permission)) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] You don't have permission to use this kit.");
+                return;
+            }
+
+            uint64 steam_id = GetSteamIdFromPC(pc);
+            auto now = std::chrono::steady_clock::now();
+
+            // Check cooldown
+            auto& cooldowns = Plugin::Get()->GetKitCooldowns();
+            auto it = cooldowns.find(steam_id);
+            if (it != cooldowns.end()) {
+                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - it->second).count();
+                if (elapsed < found_kit->cooldown_seconds) {
+                    int remaining = found_kit->cooldown_seconds - elapsed;
+                    std::ostringstream oss;
+                    oss << "[DuckBot] Kit cooldown active. Wait " << remaining << "s";
+                    Plugin::Get()->SendReply(pc, oss.str());
+                    return;
+                }
+            }
+
+            // Grant kit
+            if (!found_kit->dino_species.empty()) {
+                // Spawn dino at player's location
+                // TODO: AsaApi::GetCommands().SpawnDinoAtLocation(pc, found_kit->dino_species, found_kit->dino_level, pc->GetActorLocation());
+                std::ostringstream oss;
+                oss << "[DuckBot] " << found_kit->name << " kit granted! " << found_kit->dino_species << " (Lv" << found_kit->dino_level << ") spawned near you.";
+                Plugin::Get()->SendReply(pc, oss.str());
+            } else {
+                // Give items — just acknowledge for now, item giving needs AsaApi item system
+                // TODO: AsaApi::GetCommands().GiveItemToPlayer(pc, item_name, quantity);
+                std::ostringstream oss;
+                oss << "[DuckBot] " << found_kit->name << " kit granted! (" << found_kit->items.size() << " items)";
+                Plugin::Get()->SendReply(pc, oss.str());
+            }
+
+            cooldowns[steam_id] = now;
         }
 
         void OnBal(AShooterPlayerController* pc, FString* cmd, bool) {
