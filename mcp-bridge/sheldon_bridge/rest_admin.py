@@ -167,6 +167,20 @@ def create_rest_app(config: BridgeConfig, game_server_ref) -> web.Application:
             "events": all_events[:limit],
         })
 
+    # ─── World Context ───────────────────────────────────────────────────
+
+    @routes.get("/world")
+    async def world_stats(request: web.Request) -> web.Response:
+        """World state: tracked players and tribe bases."""
+        err = await auth_middleware(request)
+        if err:
+            return err
+
+        from sheldon_bridge.world_context import get_world_context
+        ctx = get_world_context()
+        stats = await ctx.get_stats()
+        return web.json_response(stats)
+
     # ─── Session Search ─────────────────────────────────────────────────
 
     @routes.get("/sessions/search")

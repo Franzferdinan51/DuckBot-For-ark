@@ -30,6 +30,9 @@ dev = [
     "ruff",
     "mypy",
 ]
+cache = [
+    "sentence-transformers>=2.2",
+]
 
 [project.scripts]
 duckbot-bridge = "sheldon_bridge.cli:main"

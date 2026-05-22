@@ -64,6 +64,10 @@ class BridgeServer:
         self.sessions = SessionManager()
         self.rate_limiter = RateLimiter()
 
+        # World context for spatial awareness
+        from sheldon_bridge.world_context import get_world_context
+        self.world = get_world_context()
+
         # Agent
         self.agent = Agent(
             llm=self.llm,
@@ -109,6 +113,16 @@ class BridgeServer:
                 facing_yaw=player_data.get("facing_yaw", 0.0),
             )
             player_id = player.player_id
+
+            # Track player in world context immediately on connect
+            if player.position:
+                await self.world.update_player(
+                    player.player_id,
+                    display_name=player.display_name,
+                    tribe_id=player.tribe_id,
+                    position=player.position,
+                    facing_yaw=player.facing_yaw,
+                )
 
             # Build system prompt
             system_prompt = self.config.build_system_prompt(
@@ -164,7 +178,8 @@ class BridgeServer:
         finally:
             if player_id:
                 self._connections.pop(player_id, None)
-                self.sessions.remove(player_id)
+                await self.sessions.remove(player_id)
+                await self.world.remove_player(player_id)
 
     async def _handle_message(
         self, msg: dict, session, websocket: ServerConnection
@@ -179,6 +194,14 @@ class BridgeServer:
             # Update player position (sent periodically by the mod)
             pos = msg.get("position", {})
             session.player.update_position(pos, msg.get("facing_yaw", 0.0))
+            # Keep world context in sync for spatial queries
+            await self.world.update_player(
+                session.player.player_id,
+                display_name=session.player.display_name,
+                tribe_id=session.player.tribe_id,
+                position=pos,
+                facing_yaw=msg.get("facing_yaw", 0.0),
+            )
 
         elif msg_type == "tool_response":
             # Game mod responding to a tool request (future use)
@@ -207,6 +230,13 @@ class BridgeServer:
         pos = msg.get("position")
         if pos:
             session.player.update_position(pos, msg.get("facing_yaw", 0.0))
+            await self.world.update_player(
+                session.player.player_id,
+                display_name=session.player.display_name,
+                tribe_id=session.player.tribe_id,
+                position=pos,
+                facing_yaw=msg.get("facing_yaw", 0.0),
+            )
 
         # Echo request_id from client (for server-side request tracking)
         request_id = msg.get("request_id")
@@ -217,27 +247,40 @@ class BridgeServer:
             thinking_msg["request_id"] = request_id
         await websocket.send(json.dumps(thinking_msg))
 
-        # Run the agentic loop
-        async with session.lock:
-            result = await self.agent.run(session, text)
+        # Wrapper to tag stream tokens with request_id for routing
+        async def stream_send(msg: dict) -> None:
+            if request_id is not None:
+                msg["request_id"] = request_id
+            await websocket.send(json.dumps(msg))
 
-        # Send response (echo request_id for server-side routing)
-        reply_msg = {
-            "type": "reply",
-            "message": result.response_text,
-            "stats": {
-                "tool_calls": result.tool_calls_made,
-                "iterations": result.iterations,
-                "input_tokens": result.total_input_tokens,
-                "output_tokens": result.total_output_tokens,
-                "cost": round(result.total_cost, 6),
-                "duration_ms": round(result.duration_ms, 1),
-            },
-        }
-        if request_id is not None:
-            reply_msg["request_id"] = request_id
-        await websocket.send(json.dumps(reply_msg))
+        # Run the agentic loop (prefer streaming for instant-feel responses)
+        # Note: streaming sends tokens in-flight, no separate reply message sent
+        try:
+            result = await self.agent.run_streaming(session, text, stream_send)
+        except Exception:
+            # Fall back to regular non-streaming if streaming fails
+            async with session.lock:
+                result = await self.agent.run(session, text)
+            # For non-streaming, send the final reply explicitly
+            reply_msg = {
+                "type": "reply",
+                "message": result.response_text,
+                "stats": {
+                    "tool_calls": result.tool_calls_made,
+                    "iterations": result.iterations,
+                    "input_tokens": result.total_input_tokens,
+                    "output_tokens": result.total_output_tokens,
+                    "cost": round(result.total_cost, 6),
+                    "duration_ms": round(result.duration_ms, 1),
+                },
+            }
+            if request_id is not None:
+                reply_msg["request_id"] = request_id
+            await websocket.send(json.dumps(reply_msg))
+            return
 
+        # For streaming, stats are already reflected during token stream.
+        # Log summary to bridge log only (not sent as a message to widget).
         logger.info(
             f"[{session.player.display_name}] "
             f"'{text[:50]}...' → "
@@ -307,10 +350,16 @@ async def run_server(config: BridgeConfig) -> None:
     """Start the bridge server."""
     # Initialize SQLite session store and restore any persisted sessions
     from sheldon_bridge.session_persistence import init_session_store
+    from sheldon_bridge.cache import init_cache
+
     store = await init_session_store()
     restored = await store.restore_all()
     for player_id, session in restored.items():
         logger.info(f"Restored session: {session.player.display_name} ({player_id[:8]}...)")
+
+    # Initialize semantic cache for LLM response caching
+    cache = await init_cache()
+    logger.info(f"Semantic cache ready: {cache.stats().hit_rate:.1%} hit rate")
 
     server = BridgeServer(config)
     server.sessions.set_store(store)

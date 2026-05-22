@@ -8,6 +8,7 @@ OpenRouter) behind the scenes.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
 
@@ -180,3 +181,49 @@ class LLMProvider:
             return litellm.supports_function_calling(model=self._model)
         except Exception:
             return True  # Assume yes for unknown models
+
+    async def complete_streaming(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+    ) -> AsyncGenerator[str, None]:
+        """Stream LLM response tokens as an async generator.
+
+        Usage:
+            async for token in llm.complete_streaming(messages, tools):
+                await websocket.send(json.dumps({"type": "stream_token", "content": token}))
+
+        Yields:
+            String tokens (fragments of the response content).
+        """
+        kwargs: dict[str, Any] = {
+            "model": self._model,
+            "messages": messages,
+            "max_tokens": self.config.max_tokens,
+            "temperature": self.config.temperature,
+            "timeout": self.config.timeout,
+            "num_retries": self.config.num_retries,
+            "api_key": self.config.api_key,
+            "stream": True,
+        }
+
+        if self.config.api_base:
+            kwargs["api_base"] = self.config.api_base
+
+        if tools:
+            kwargs["tools"] = tools
+            # Streaming with tools is not universally supported
+            # Fall back to non-streaming if model doesn't support it
+            try:
+                supports = litellm.supports_function_calling(model=self._model)
+                if not supports:
+                    tools = None
+            except Exception:
+                tools = None
+
+        response = await acompletion(**kwargs)
+
+        async for chunk in response:
+            choice = chunk.choices[0]
+            if choice.delta.content:
+                yield choice.delta.content

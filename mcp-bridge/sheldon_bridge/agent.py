@@ -64,6 +64,117 @@ class Agent:
         self.rate_limiter = rate_limiter
         self._game_handler = game_command_handler
 
+    async def run_streaming(
+        self,
+        session: Session,
+        user_message: str,
+        websocket_send,
+    ) -> AgentResult:
+        """Streaming variant — sends tokens to websocket as they arrive.
+
+        Does NOT support tool calls (streaming + function calling is not universally
+        supported by all LLM providers). Falls back to regular run() for any
+        interaction that requires tool use.
+        """
+        from sheldon_bridge.cache import get_cache
+
+        start_time = time.time()
+        player_id = session.player.player_id
+        tier = session.player.tier
+
+        # Rate limit check
+        allowed, reason = self.rate_limiter.check(player_id, tier, "requests")
+        if not allowed:
+            return AgentResult(
+                response_text=f"You're sending messages too quickly. Please wait a moment. ({reason})",
+                tool_calls_made=0, iterations=0,
+                total_input_tokens=0, total_output_tokens=0,
+                total_cost=0.0, duration_ms=(time.time() - start_time) * 1000,
+            )
+
+        session.add_user_message(user_message)
+        messages = session.get_messages()
+
+        # Compute cost estimate upfront
+        input_tokens = self.llm.count_tokens(messages)
+        max_context = self.llm.get_max_context()
+
+        if input_tokens > max_context * 0.85:
+            session.truncate_to_budget(max_context, reserve=8192)
+            messages = session.get_messages()
+
+        # Check semantic cache first
+        cache = get_cache()
+        context_key = f"{tier}:{session.player.tribe_id or session.player.player_id}"
+        cached = await cache.lookup(user_message, context_key=context_key)
+        if cached:
+            # Stream cached response token by token
+            words = cached.response.split(" ")
+            partial = ""
+            for word in words:
+                partial += word + " "
+                await websocket_send(json.dumps({"type": "stream_token", "content": word + " "}))
+                await asyncio.sleep(0.02)  # natural typing pace
+            session.add_assistant_message({"role": "assistant", "content": cached.response})
+            session.track_usage(0, 0, 0)
+            return AgentResult(
+                response_text=cached.response,
+                tool_calls_made=0, iterations=0,
+                total_input_tokens=0, total_output_tokens=0,
+                total_cost=0.0, duration_ms=(time.time() - start_time) * 1000,
+            )
+
+        # Stream the LLM response
+        tools = self.registry.get_tools_for_tier(tier)
+        tools_llm = self.registry.to_llm_format(tools) if tools else None
+
+        # Check if streaming with tools is viable — if not, fall back to regular run
+        if tools_llm:
+            # Can't stream with tool calls universally, fall back
+            return await self.run(session, user_message)
+
+        total_input = 0
+        total_output = 0
+        total_cost = 0.0
+        full_response = ""
+
+        try:
+            async for token in self.llm.complete_streaming(messages, tools=None):
+                full_response += token
+                await websocket_send(json.dumps({
+                    "type": "stream_token",
+                    "content": token,
+                }))
+
+        except Exception as e:
+            logger.error(f"Streaming LLM call failed: {e}")
+            session.track_usage(0, 0, 0)
+            return AgentResult(
+                response_text="I'm having trouble connecting to my brain right now. Try again in a moment.",
+                tool_calls_made=0, iterations=1,
+                total_input_tokens=0, total_output_tokens=0,
+                total_cost=0.0, duration_ms=(time.time() - start_time) * 1000,
+            )
+
+        # Cache the complete response
+        if full_response:
+            await cache.store(user_message, full_response, context_key=context_key)
+
+        # Track usage (estimate tokens from response length)
+        output_tokens = len(full_response) // 4
+        session.track_usage(input_tokens, output_tokens, 0.0)
+        session.add_assistant_message({"role": "assistant", "content": full_response})
+
+        return AgentResult(
+            response_text=full_response,
+            tool_calls_made=0,
+            iterations=1,
+            total_input_tokens=input_tokens,
+            total_output_tokens=output_tokens,
+            total_cost=0.0,
+            duration_ms=(time.time() - start_time) * 1000,
+        )
+
     async def run(
         self,
         session: Session,
