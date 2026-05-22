@@ -26,6 +26,7 @@ class BridgeConfig:
     # Server settings
     websocket_host: str = "0.0.0.0"
     websocket_port: int = 8443
+    admin_port: int = 8444  # WebSocket port for desktop companion app
     ssl_cert: str | None = None
     ssl_key: str | None = None
 
@@ -183,6 +184,7 @@ def load_config(path: str = DEFAULT_CONFIG_PATH) -> BridgeConfig:
         llm=llm_config,
         websocket_host=server_raw.get("websocket_host", "0.0.0.0"),
         websocket_port=server_raw.get("websocket_port", 8443),
+        admin_port=server_raw.get("admin_port", 8444),
         ssl_cert=server_raw.get("websocket_ssl_cert"),
         ssl_key=server_raw.get("websocket_ssl_key"),
         shared_secret=shared_secret,

@@ -320,6 +320,11 @@ async def run_server(config: BridgeConfig) -> None:
     # Start cleanup task
     cleanup_task = asyncio.create_task(server._cleanup_loop())
 
+    # Start admin API server for desktop companion app
+    from sheldon_bridge.admin_api import start_admin_server
+    admin_server = start_admin_server(config, server)
+    logger.info(f"Admin API for desktop app: ws://0.0.0.0:{getattr(config, 'admin_port', 8444)}")
+
     logger.info(
         f"Sheldon Bridge starting on "
         f"ws://{config.websocket_host}:{config.websocket_port}"
