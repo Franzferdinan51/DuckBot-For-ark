@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 from dataclasses import dataclass, field
 
-from rapidfuzz import fuzz, process
+from sheldon_bridge import fuzzy
 
 logger = logging.getLogger(__name__)
 
@@ -137,10 +137,9 @@ class KnowledgeBase:
                 return [SearchResult(entry=dino, score=95.0, match_type="alias")]
 
         # Tier 3: Fuzzy match against names + nicknames + aliases
-        results = process.extract(
+        results = fuzzy.extract(
             query,
             self._dino_search_choices.keys(),
-            scorer=fuzz.WRatio,
             limit=limit,
             score_cutoff=55,
         )
@@ -172,10 +171,9 @@ class KnowledgeBase:
             return [SearchResult(entry=exact, score=100.0, match_type="exact")]
 
         # Tier 2: Fuzzy match
-        results = process.extract(
+        results = fuzzy.extract(
             query,
             self._item_search_choices.keys(),
-            scorer=fuzz.WRatio,
             limit=limit,
             score_cutoff=55,
         )

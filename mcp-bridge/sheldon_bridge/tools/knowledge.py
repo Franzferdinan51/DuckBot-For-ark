@@ -14,8 +14,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from rapidfuzz import fuzz, process
-
+from sheldon_bridge import fuzzy
 from sheldon_bridge.tools.registry import tool
 from sheldon_bridge.world_context import get_world_context
 
@@ -119,13 +118,7 @@ def _search_dinos(query: str, mod_filter: str = "", limit: int = 5) -> list[dict
     if not _all_dino_names:
         return []
 
-    matches = process.extract(
-        query_lower,
-        _all_dino_names.keys(),
-        scorer=fuzz.WRatio,
-        limit=limit,
-        score_cutoff=55,
-    )
+    matches = fuzzy.extract(query_lower, _all_dino_names.keys(), limit=limit, score_cutoff=55)
 
     results = []
     seen = set()
@@ -219,7 +212,7 @@ def lookup_item(query: str) -> dict[str, Any]:
 
     # Fuzzy match
     item_names = {item.get("name", "").lower(): item for item in _item_db}
-    matches = process.extract(query_lower, item_names.keys(), scorer=fuzz.WRatio, limit=3)
+    matches = fuzzy.extract(query_lower, item_names.keys(), limit=3)
 
     if matches and matches[0][1] >= 60:
         best_match = item_names[matches[0][0]]
@@ -346,7 +339,5 @@ def _get_dino_suggestions(query: str) -> list[str]:
     if not _all_dino_names:
         return []
 
-    matches = process.extract(
-        query.lower(), _all_dino_names.keys(), scorer=fuzz.WRatio, limit=3, score_cutoff=40
-    )
+    matches = fuzzy.extract(query.lower(), _all_dino_names.keys(), limit=3, score_cutoff=40)
     return [_all_dino_names[m[0]] for m in matches]
