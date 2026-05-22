@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;h;hh;hpp;hxx;hpp;inl;ipp;wpx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-6257E1D54B68}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;hm;inl;mod;odl;hpp</Extensions>
+    </Filter>
+    <Filter Include="Configs">
+      <UniqueIdentifier>{71F90C8E-1234-5678-90AB-C1D234567890}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Includes">
+      <UniqueIdentifier>{71F90C8E-1234-5678-90AB-C2D234567891}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Includes\nlohmann\json.hpp" />
+    <ClInclude Include="Includes\json.hpp" />
+    <ClInclude Include="src\Plugin.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\Plugin.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Configs\PluginInfo.json" />
+  </ItemGroup>
+</Project>
