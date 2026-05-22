@@ -105,7 +105,11 @@ class BridgeServer:
                 tribe=player.tribe_id,
             )
 
-            session = self.sessions.create(player, system_prompt)
+            session = self.sessions.create_duckbot(
+                player,
+                system_prompt=system_prompt,
+                max_events=50,
+            )
             self._connections[player_id] = websocket
 
             # Send auth success

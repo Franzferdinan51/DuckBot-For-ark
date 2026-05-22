@@ -155,6 +155,40 @@ class SessionManager:
         )
         return session
 
+    def create_duckbot(
+        self,
+        player: PlayerContext,
+        system_prompt: str = "",
+        max_events: int = 50,
+        tribe_data: dict | None = None,
+    ):
+        """Create a DuckBotSession with ARK game event context for a player.
+
+        DuckBotSession wraps a base Session with:
+        - Game event ring buffer (last N events)
+        - Tribe context injection
+        - ARK-aware truncation (game events survive longer than chat)
+        """
+        from sheldon_bridge.duckbot_session import DuckBotSession
+
+        self._sessions.pop(player.player_id, None)
+
+        base = Session(player=player)
+        if system_prompt:
+            base.add_system_prompt(system_prompt)
+
+        session = DuckBotSession(
+            base_session=base,
+            max_events=max_events,
+            tribe_data=tribe_data,
+        )
+        self._sessions[player.player_id] = session
+        logger.info(
+            f"DuckBotSession created for {player.display_name} "
+            f"({player.player_id[:8]}...) tier={player.tier}"
+        )
+        return session
+
     def get(self, player_id: str) -> Session | None:
         """Get an existing session by player ID."""
         return self._sessions.get(player_id)
