@@ -125,6 +125,11 @@ class Agent:
                 total_output += llm_response.output_tokens
                 total_cost += llm_response.cost
 
+                # Record metrics for LLM usage
+                from sheldon_bridge.metrics import get_metrics
+                metrics = get_metrics()
+                metrics.record_llm(llm_response.input_tokens, llm_response.output_tokens, llm_response.cost)
+
             except litellm.ContextWindowExceededError:
                 logger.warning(f"Context window exceeded for {player_id}, truncating")
                 session.truncate_to_budget(max_context, reserve=8192)
@@ -138,6 +143,8 @@ class Agent:
 
             except Exception as e:
                 logger.error(f"LLM call failed: {e}")
+                from sheldon_bridge.metrics import get_metrics
+                get_metrics().record_llm_error()
                 session.track_usage(total_input, total_output, total_cost)
                 return AgentResult(
                     response_text="I'm having trouble connecting to my brain right now. Try again in a moment.",
@@ -186,6 +193,8 @@ class Agent:
                         json.dumps({"error": f"Invalid arguments: {e}"}),
                     )
                     tool_calls_made += 1
+                    from sheldon_bridge.metrics import get_metrics
+                    get_metrics().record_tool_call(tool_name, 0, error=True)
                     continue
 
                 # DEFENSE IN DEPTH: Validate tool call against permissions
@@ -200,6 +209,8 @@ class Agent:
                         json.dumps({"error": f"Permission denied: {reason}"}),
                     )
                     tool_calls_made += 1
+                    from sheldon_bridge.metrics import get_metrics
+                    get_metrics().record_tool_call(tool_name, 0, error=True)
                     continue
 
                 # Rate limit check for tool calls
@@ -231,6 +242,8 @@ class Agent:
                         result_str = json.dumps(result, default=str)
 
                     session.add_tool_result(tool_call.id, tool_name, result_str)
+                    from sheldon_bridge.metrics import get_metrics
+                    get_metrics().record_tool_call(tool_name, 0, error=False)
 
                 except asyncio.TimeoutError:
                     logger.error(f"Tool '{tool_name}' timed out after {TOOL_EXECUTION_TIMEOUT}s")
@@ -239,6 +252,8 @@ class Agent:
                         tool_name,
                         json.dumps({"error": "Tool execution timed out"}),
                     )
+                    from sheldon_bridge.metrics import get_metrics
+                    get_metrics().record_tool_call(tool_name, TOOL_EXECUTION_TIMEOUT * 1000, error=True)
 
                 except Exception as e:
                     logger.error(f"Tool '{tool_name}' raised {type(e).__name__}: {e}")
@@ -247,6 +262,8 @@ class Agent:
                         tool_name,
                         json.dumps({"error": f"{type(e).__name__}: {e}"}),
                     )
+                    from sheldon_bridge.metrics import get_metrics
+                    get_metrics().record_tool_call(tool_name, 0, error=True)
 
                 tool_calls_made += 1
 
