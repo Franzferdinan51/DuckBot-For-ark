@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "sheldon-bridge"
+name = "duckbot-bridge"
 version = "0.1.0"
-description = "LLM-powered AI assistant bridge for ARK: Survival Ascended"
+description = "LLM-powered AI assistant bridge for ARK: Survival Ascended — DuckBot C++ plugin companion"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [
-    {name = "ArkAscendedAI"},
+    {name = "Franzferdinan51"},
 ]
 
 dependencies = [
@@ -30,7 +30,7 @@ dev = [
 ]
 
 [project.scripts]
-sheldon-bridge = "sheldon_bridge.cli:main"
+duckbot-bridge = "sheldon_bridge.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/ArkAscendedAI/sheldon-ai-for-ark"
