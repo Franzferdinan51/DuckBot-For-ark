@@ -499,27 +499,78 @@ ADMIN: /reload, /save, /status, /event
         }
 
         void OnTribe(AShooterPlayerController* pc, FString* cmd, bool) {
-            auto* pData = Plugin::Get()->GetPlayerBySteamId(0); // TODO: get actual steam_id
+            uint64 steam_id = GetSteamIdFromPC(pc);
+            auto* pData = Plugin::Get()->GetPlayerBySteamId(steam_id);
             int tribe_id = Plugin::Get()->GetPlayerTribeId(pc);
             if (tribe_id == 0) {
                 Plugin::Get()->SendReply(pc, "[DuckBot] You are not in a tribe.");
                 return;
             }
             std::ostringstream oss;
-            oss << "[DuckBot] Tribe ID: " << tribe_id << " — Overview: (tracking not yet connected)";
+            oss << "[DuckBot] Tribe ID: " << tribe_id;
+            if (pData) oss << " | Level: " << pData->level << " | Balance: " << pData->balance;
+            oss << " | Dinos tracked: " << Plugin::Get()->GetAllTribes().size();
             Plugin::Get()->SendReply(pc, oss.str());
         }
 
         void OnTDinos(AShooterPlayerController* pc, FString* cmd, bool) {
-            Plugin::Get()->SendReply(pc, "[DuckBot] Tribe dinos: (not yet implemented)");
+            int tribe_id = Plugin::Get()->GetPlayerTribeId(pc);
+            if (tribe_id == 0) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] You are not in a tribe.");
+                return;
+            }
+            auto& tribes = Plugin::Get()->GetAllTribes();
+            std::ostringstream oss;
+            oss << "[DuckBot] Tribe dinos (" << tribe_id << "): ";
+            int count = 0;
+            for (auto& t : tribes) {
+                if (t.tribe_id == tribe_id) {
+                    for (auto& d : t.dinos) {
+                        if (count++ < 10) oss << d.species << " Lv" << d.level << ", ";
+                    }
+                    break;
+                }
+            }
+            if (count == 0) oss << "(no dinos tracked yet)";
+            Plugin::Get()->SendReply(pc, oss.str());
         }
 
         void OnTribeAlert(AShooterPlayerController* pc, FString* cmd, bool) {
-            Plugin::Get()->SendReply(pc, "[DuckBot] No wild dino alerts.");
+            int tribe_id = Plugin::Get()->GetPlayerTribeId(pc);
+            if (tribe_id == 0) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] You are not in a tribe.");
+                return;
+            }
+            auto& tribes = Plugin::Get()->GetAllTribes();
+            int alerts = 0;
+            for (auto& t : tribes) {
+                if (t.tribe_id == tribe_id) {
+                    alerts = t.active_alerts;
+                    break;
+                }
+            }
+            if (alerts == 0) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] No wild dino alerts near your tribe base.");
+            } else {
+                std::ostringstream oss;
+                oss << "[DuckBot] ALERT: " << alerts << " dangerous wild dinos near your tribe!";
+                Plugin::Get()->SendReply(pc, oss.str());
+            }
         }
 
         void OnDinos(AShooterPlayerController* pc, FString* cmd, bool) {
-            Plugin::Get()->SendReply(pc, "[DuckBot] Dinos: tracking not yet connected");
+            uint64 steam_id = GetSteamIdFromPC(pc);
+            auto& tribes = Plugin::Get()->GetAllTribes();
+            std::ostringstream oss;
+            oss << "[DuckBot] Your tracked dinos: ";
+            int count = 0;
+            for (auto& t : tribes) {
+                for (auto& d : t.dinos) {
+                    if (count++ < 10) oss << d.species << " Lv" << d.level << ", ";
+                }
+            }
+            if (count == 0) oss << "(none tracked yet)";
+            Plugin::Get()->SendReply(pc, oss.str());
         }
 
         void OnKits(AShooterPlayerController* pc, FString* cmd, bool) {
