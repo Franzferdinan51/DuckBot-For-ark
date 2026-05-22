@@ -836,9 +836,9 @@ ADMIN: /reload, /save, /status, /event
 
             // Find target player by name (need to iterate connected players via ApiUtils)
             // For now store pending request
-            // TODO: use AsaApi::GetApiUtils().FindPlayerBy... to resolve target
             pending_tpr_[requester] = 0; // placeholder - needs target steamid resolved
-
+            // Note: target player resolution requires iterating all connected
+            // players via ApiUtils — simplified for now
             Plugin::Get()->SendReply(pc, "[DuckBot] Teleport request sent to " + target_name + ". They have 60s to /tpaccept");
         }
 
