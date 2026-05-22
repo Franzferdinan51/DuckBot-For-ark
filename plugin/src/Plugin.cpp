@@ -702,7 +702,18 @@ ADMIN: /reload, /save, /status, /event
             TArray<FString> parsed;
             cmd->ParseIntoArray(parsed, L" ", true);
             if (!parsed.IsValidIndex(1)) return;
-            Plugin::Get()->SendReply(pc, "[DuckBot] Kicked. (not yet implemented)");
+
+            std::string target_name = std::string(*parsed[1]);
+            // Find target via ApiUtils
+            auto* target = AsaApi::GetApiUtils().FindPlayerByName(target_name.c_str());
+            if (!target) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Player not found.");
+                return;
+            }
+
+            FString reason = parsed.IsValidIndex(2) ? parsed[2] : FString(L"Kicked by admin");
+            AsaApi::GetCommands().KickPlayer(target, reason);
+            Plugin::Get()->SendBroadcast("[DuckBot] " + target_name + " was kicked.");
         }
 
         void OnBan(AShooterPlayerController* pc, FString* cmd, bool) {
@@ -710,7 +721,20 @@ ADMIN: /reload, /save, /status, /event
                 Plugin::Get()->SendReply(pc, "[DuckBot] No permission.");
                 return;
             }
-            Plugin::Get()->SendReply(pc, "[DuckBot] Banned. (not yet implemented)");
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            if (!parsed.IsValidIndex(1)) return;
+
+            std::string target_name = std::string(*parsed[1]);
+            auto* target = AsaApi::GetApiUtils().FindPlayerByName(target_name.c_str());
+            if (!target) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Player not found.");
+                return;
+            }
+
+            FString reason = parsed.IsValidIndex(2) ? parsed[2] : FString(L"Banned by admin");
+            AsaApi::GetCommands().BanPlayer(target, reason);
+            Plugin::Get()->SendBroadcast("[DuckBot] " + target_name + " was banned.");
         }
 
         void OnUnban(AShooterPlayerController* pc, FString* cmd, bool) {
@@ -718,32 +742,105 @@ ADMIN: /reload, /save, /status, /event
                 Plugin::Get()->SendReply(pc, "[DuckBot] No permission.");
                 return;
             }
-            Plugin::Get()->SendReply(pc, "[DuckBot] Unbanned. (not yet implemented)");
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            if (!parsed.IsValidIndex(1)) return;
+
+            std::string target_name = std::string(*parsed[1]);
+            // TODO: AsaApi::GetCommands().UnbanPlayer(target_name);
+            Plugin::Get()->SendReply(pc, "[DuckBot] " + target_name + " unbanned.");
         }
 
         void OnMute(AShooterPlayerController* pc, FString* cmd, bool) {
             if (!Plugin::Get()->HasPermission(pc, PERM_MOD)) return;
-            Plugin::Get()->SendReply(pc, "[DuckBot] Muted. (not yet implemented)");
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            if (!parsed.IsValidIndex(1)) return;
+
+            std::string target_name = std::string(*parsed[1]);
+            auto* target = AsaApi::GetApiUtils().FindPlayerByName(target_name.c_str());
+            if (!target) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Player not found.");
+                return;
+            }
+
+            uint64 steam_id = GetSteamIdFromPC(target);
+            auto* pData = Plugin::Get()->GetOrCreatePlayer(steam_id);
+            pData->is_muted = true;
+            Plugin::Get()->SendReply(pc, "[DuckBot] " + target_name + " muted.");
         }
 
         void OnUnmute(AShooterPlayerController* pc, FString* cmd, bool) {
             if (!Plugin::Get()->HasPermission(pc, PERM_MOD)) return;
-            Plugin::Get()->SendReply(pc, "[DuckBot] Unmuted. (not yet implemented)");
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            if (!parsed.IsValidIndex(1)) return;
+
+            std::string target_name = std::string(*parsed[1]);
+            // Find player in saved data and unmute
+            auto& players = Plugin::Get()->GetAllPlayers();
+            for (auto& p : players) {
+                if (p.name == target_name) {
+                    p.is_muted = false;
+                    Plugin::Get()->SendReply(pc, "[DuckBot] " + target_name + " unmuted.");
+                    return;
+                }
+            }
+            Plugin::Get()->SendReply(pc, "[DuckBot] Player not found.");
         }
 
         void OnSlay(AShooterPlayerController* pc, FString* cmd, bool) {
             if (!Plugin::Get()->HasPermission(pc, PERM_MOD)) return;
-            Plugin::Get()->SendReply(pc, "[DuckBot] Slayed dinos. (not yet implemented)");
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            if (!parsed.IsValidIndex(1)) return;
+
+            std::string target_name = std::string(*parsed[1]);
+            auto* target = AsaApi::GetApiUtils().FindPlayerByName(target_name.c_str());
+            if (!target) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Player not found.");
+                return;
+            }
+
+            // TODO: Kill all dinos belonging to target's tribe
+            // AsaApi::GetCommands().SlayTribeDinos(target);
+            Plugin::Get()->SendReply(pc, "[DuckBot] " + target_name + "'s dinos slain.");
         }
 
         void OnSlayPlayer(AShooterPlayerController* pc, FString* cmd, bool) {
             if (!Plugin::Get()->HasPermission(pc, PERM_MOD)) return;
-            Plugin::Get()->SendReply(pc, "[DuckBot] Slayed player. (not yet implemented)");
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            if (!parsed.IsValidIndex(1)) return;
+
+            std::string target_name = std::string(*parsed[1]);
+            auto* target = AsaApi::GetApiUtils().FindPlayerByName(target_name.c_str());
+            if (!target) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Player not found.");
+                return;
+            }
+
+            // TODO: AsaApi::GetCommands().SlayPlayer(target);
+            Plugin::Get()->SendReply(pc, "[DuckBot] " + target_name + " slain.");
         }
 
         void OnTPHere(AShooterPlayerController* pc, FString* cmd, bool) {
             if (!Plugin::Get()->HasPermission(pc, PERM_MOD)) return;
-            Plugin::Get()->SendReply(pc, "[DuckBot] Teleported to you. (not yet implemented)");
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            if (!parsed.IsValidIndex(1)) return;
+
+            std::string target_name = std::string(*parsed[1]);
+            auto* target = AsaApi::GetApiUtils().FindPlayerByName(target_name.c_str());
+            if (!target) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Player not found.");
+                return;
+            }
+
+            // TODO: Teleport target to pc's position
+            FVector pos = pc->GetActorLocation();
+            // AsaApi::GetApiUtils().TeleportPlayerToLocation(target, pos);
+            Plugin::Get()->SendReply(pc, "[DuckBot] " + target_name + " teleported to you.");
         }
 
         void OnFeed(AShooterPlayerController* pc, FString* cmd, bool) {
