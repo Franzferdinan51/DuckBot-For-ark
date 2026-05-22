@@ -167,6 +167,32 @@ def create_rest_app(config: BridgeConfig, game_server_ref) -> web.Application:
             "events": all_events[:limit],
         })
 
+    # ─── Session Search ─────────────────────────────────────────────────
+
+    @routes.get("/sessions/search")
+    async def sessions_search(request: web.Request) -> web.Response:
+        err = await auth_middleware(request)
+        if err:
+            return err
+
+        player_id = request.query.get("player_id", "")
+        query = request.query.get("q", "")
+
+        if not player_id or not query:
+            return web.json_response({"error": "player_id and q are required"}, status=400)
+
+        from sheldon_bridge.session_persistence import get_session_store
+        store = get_session_store()
+        if not store:
+            return web.json_response({"error": "Session store not initialized"}, status=503)
+
+        results = await store.search(player_id, query)
+        return web.json_response({
+            "player_id": player_id,
+            "query": query,
+            "matches": results,
+        })
+
     # ─── Broadcast ──────────────────────────────────────────────────────
 
     @routes.post("/broadcast")

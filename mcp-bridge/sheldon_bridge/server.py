@@ -297,7 +297,7 @@ class BridgeServer:
         """Periodically clean up expired sessions and rate limiter data."""
         while True:
             await asyncio.sleep(60)
-            expired = self.sessions.cleanup_expired()
+            expired = await self.sessions.cleanup_expired()
             self.rate_limiter.cleanup()
             if expired:
                 logger.info(f"Cleaned up {expired} expired sessions")
@@ -305,7 +305,18 @@ class BridgeServer:
 
 async def run_server(config: BridgeConfig) -> None:
     """Start the bridge server."""
+    # Initialize SQLite session store and restore any persisted sessions
+    from sheldon_bridge.session_persistence import init_session_store
+    store = await init_session_store()
+    restored = await store.restore_all()
+    for player_id, session in restored.items():
+        logger.info(f"Restored session: {session.player.display_name} ({player_id[:8]}...)")
+
     server = BridgeServer(config)
+    server.sessions.set_store(store)
+    # Seed restored sessions into the session manager so they can be continued
+    for player_id, session in restored.items():
+        server.sessions._sessions[player_id] = session
 
     # Set up graceful shutdown
     stop = asyncio.get_event_loop().create_future()

@@ -132,12 +132,18 @@ class SessionManager:
 
     Sessions are created on WebSocket connect and destroyed on disconnect.
     A background cleanup task removes sessions that have been idle too long.
+    Persisted sessions are loaded from SQLite on startup.
     """
 
     def __init__(self, session_timeout: int = 3600, max_sessions: int = 100):
         self._sessions: dict[str, Session] = {}
         self._session_timeout = session_timeout
         self._max_sessions = max_sessions
+        self._store = None  # SessionStore for persistence
+
+    def set_store(self, store) -> None:
+        """Set the SessionStore for automatic save/restore."""
+        self._store = store
 
     def create(self, player: PlayerContext, system_prompt: str = "") -> Session:
         """Create a new session for a player."""
@@ -193,10 +199,16 @@ class SessionManager:
         """Get an existing session by player ID."""
         return self._sessions.get(player_id)
 
-    def remove(self, player_id: str) -> None:
-        """Remove a session."""
+    async def remove(self, player_id: str) -> None:
+        """Remove a session. Persists to SQLite if store is configured."""
         session = self._sessions.pop(player_id, None)
         if session:
+            # Save to SQLite before removing (so context survives bridge restart)
+            if self._store:
+                try:
+                    await self._store.save(session)
+                except Exception as e:
+                    logger.warning(f"Failed to persist session {player_id[:8]}...: {e}")
             logger.info(
                 f"Session removed for {session.player.display_name} "
                 f"({player_id[:8]}...) "
@@ -204,15 +216,15 @@ class SessionManager:
                 f"cost=${session.total_cost:.4f}"
             )
 
-    def cleanup_expired(self) -> int:
-        """Remove sessions that have been idle too long. Returns count removed."""
+    async def cleanup_expired(self) -> int:
+        """Remove sessions idle too long. Persists to SQLite first. Returns count removed."""
         expired = [
             pid
             for pid, session in self._sessions.items()
             if session.idle_seconds > self._session_timeout
         ]
         for pid in expired:
-            self.remove(pid)
+            await self.remove(pid)
         return len(expired)
 
     @property
