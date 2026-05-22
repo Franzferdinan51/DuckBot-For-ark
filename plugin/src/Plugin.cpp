@@ -541,7 +541,8 @@ ADMIN: /reload, /save, /status, /event
         }
 
         void OnBal(AShooterPlayerController* pc, FString* cmd, bool) {
-            auto* pData = Plugin::Get()->GetPlayerBySteamId(0); // TODO: real steam_id
+            uint64 steam_id = GetSteamIdFromPC(pc);
+            auto* pData = Plugin::Get()->GetPlayerBySteamId(steam_id);
             int bal = pData ? pData->balance : 0;
             std::ostringstream oss;
             oss << "[DuckBot] Balance: " << bal << " points";
@@ -688,11 +689,50 @@ ADMIN: /reload, /save, /status, /event
         }
 
         void OnDaily(AShooterPlayerController* pc, FString* cmd, bool) {
-            Plugin::Get()->SendReply(pc, "[DuckBot] Daily reward claimed! +100 points (not yet persisted)");
+            uint64 steam_id = GetSteamIdFromPC(pc);
+            auto* pData = Plugin::Get()->GetOrCreatePlayer(steam_id);
+
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - pData->last_daily).count();
+
+            if (elapsed < 86400) { // 24 hours
+                int remaining = 86400 - elapsed;
+                std::ostringstream oss;
+                oss << "[DuckBot] Daily reward available in " << (remaining / 3600) << "h "
+                    << ((remaining % 3600) / 60) << "m";
+                Plugin::Get()->SendReply(pc, oss.str());
+                return;
+            }
+
+            pData->balance += Plugin::Get()->GetConfig().daily_reward;
+            pData->last_daily = now;
+
+            std::ostringstream oss;
+            oss << "[DuckBot] Daily reward claimed! +" << Plugin::Get()->GetConfig().daily_reward << " points";
+            Plugin::Get()->SendReply(pc, oss.str());
         }
 
         void OnWork(AShooterPlayerController* pc, FString* cmd, bool) {
-            Plugin::Get()->SendReply(pc, "[DuckBot] Work done! +15 points (not yet persisted)");
+            uint64 steam_id = GetSteamIdFromPC(pc);
+            auto* pData = Plugin::Get()->GetOrCreatePlayer(steam_id);
+            auto now = std::chrono::steady_clock::now();
+
+            int cooldown = Plugin::Get()->GetConfig().work_cooldown;
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - pData->last_work).count();
+
+            if (elapsed < cooldown) {
+                std::ostringstream oss;
+                oss << "[DuckBot] Work cooldown active. Wait " << (cooldown - elapsed) << "s";
+                Plugin::Get()->SendReply(pc, oss.str());
+                return;
+            }
+
+            pData->balance += Plugin::Get()->GetConfig().work_reward;
+            pData->last_work = now;
+
+            std::ostringstream oss;
+            oss << "[DuckBot] Work done! +" << Plugin::Get()->GetConfig().work_reward << " points";
+            Plugin::Get()->SendReply(pc, oss.str());
         }
 
         void OnBreeds(AShooterPlayerController* pc, FString* cmd, bool) {
@@ -763,7 +803,45 @@ ADMIN: /reload, /save, /status, /event
                 Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /pay [player] [amount]");
                 return;
             }
-            Plugin::Get()->SendReply(pc, "[DuckBot] Payment sent. (not yet implemented)");
+
+            uint64 sender_steam = GetSteamIdFromPC(pc);
+            auto* sender = Plugin::Get()->GetPlayerBySteamId(sender_steam);
+            if (!sender) sender = Plugin::Get()->GetOrCreatePlayer(sender_steam);
+
+            std::string target_name = std::string(*parsed[1]);
+            int amount = std::atoi(std::string(*parsed[2]).c_str());
+
+            if (amount <= 0) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Invalid amount.");
+                return;
+            }
+
+            if (sender->balance < amount) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Insufficient balance.");
+                return;
+            }
+
+            // Find target player by name
+            auto& all_players = Plugin::Get()->GetAllPlayers();
+            PlayerData* target = nullptr;
+            for (auto& p : all_players) {
+                if (p.name == target_name) {
+                    target = &p;
+                    break;
+                }
+            }
+
+            if (!target) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Player not found.");
+                return;
+            }
+
+            sender->balance -= amount;
+            target->balance += amount;
+
+            std::ostringstream oss;
+            oss << "[DuckBot] Paid " << amount << " points to " << target_name;
+            Plugin::Get()->SendReply(pc, oss.str());
         }
     }
 
