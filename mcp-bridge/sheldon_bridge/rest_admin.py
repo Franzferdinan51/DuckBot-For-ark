@@ -181,6 +181,120 @@ def create_rest_app(config: BridgeConfig, game_server_ref) -> web.Application:
         stats = await ctx.get_stats()
         return web.json_response(stats)
 
+    # ─── Admin AI Chat ──────────────────────────────────────────────────
+
+    @routes.get("/admin/ai")
+    async def admin_ai_get(request: web.Request) -> web.Response:
+        err = await auth_middleware(request)
+        if err:
+            return err
+        query = request.query.get("q", "")
+        if not query:
+            return web.json_response({"error": "q parameter required"}, status=400)
+        # Use AdminServer's _ai_chat
+        from sheldon_bridge.admin_api import get_admin_server
+        admin = get_admin_server()
+        if not admin:
+            return web.json_response({"error": "Admin server not running"}, status=503)
+        result = await admin._ai_chat(query)
+        return web.json_response(result)
+
+    @routes.post("/admin/ai")
+    async def admin_ai_post(request: web.Request) -> web.Response:
+        err = await auth_middleware(request)
+        if err:
+            return err
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        query = body.get("q", "") or body.get("query", "")
+        if not query:
+            return web.json_response({"error": "q/query required"}, status=400)
+        from sheldon_bridge.admin_api import get_admin_server
+        admin = get_admin_server()
+        if not admin:
+            return web.json_response({"error": "Admin server not running"}, status=503)
+        result = await admin._ai_chat(query)
+        return web.json_response(result)
+
+    # ─── Admin Skills ────────────────────────────────────────────────────
+
+    @routes.get("/admin/skills")
+    async def admin_skills(request: web.Request) -> web.Response:
+        err = await auth_middleware(request)
+        if err:
+            return err
+        from sheldon_bridge.skills.registry import get_skill_registry
+        registry = get_skill_registry()
+        skills = []
+        for skill in registry._skills.values():
+            skills.append({
+                "name": skill.meta.name,
+                "description": skill.meta.description,
+                "auto_triggers": skill.meta.auto_trigger_on or [],
+                "tier": skill.meta.tier,
+            })
+        return web.json_response({"skills": skills, "count": len(skills)})
+
+    @routes.post("/admin/skills/{skill_name}/trigger")
+    async def admin_skill_trigger(request: web.Request) -> web.Response:
+        err = await auth_middleware(request)
+        if err:
+            return err
+        skill_name = request.match_info["skill_name"]
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        from sheldon_bridge.admin_api import get_admin_server
+        admin = get_admin_server()
+        if not admin:
+            return web.json_response({"error": "Admin server not running"}, status=503)
+        result = await admin._trigger_skill(skill_name, body)
+        if "error" in result:
+            return web.json_response(result, status=404 if "not found" in result["error"].lower() else 500)
+        return web.json_response(result)
+
+    # ─── Admin LLM Stats ─────────────────────────────────────────────────
+
+    @routes.get("/admin/llm-stats")
+    async def admin_llm_stats(request: web.Request) -> web.Response:
+        err = await auth_middleware(request)
+        if err:
+            return err
+        from sheldon_bridge.metrics import get_metrics
+        metrics = get_metrics()
+        health = metrics.get_health()
+        return web.json_response({
+            "total_requests": health.get("llm", {}).get("total_requests", 0),
+            "total_cost_usd": round(health.get("llm", {}).get("total_cost_usd", 0), 6),
+            "total_input_tokens": health.get("llm", {}).get("total_input_tokens", 0),
+            "total_output_tokens": health.get("llm", {}).get("total_output_tokens", 0),
+            "top_players": health.get("top_players", []),
+        })
+
+    # ─── Admin Memory Recall ─────────────────────────────────────────────
+
+    @routes.get("/admin/memory/search")
+    async def admin_memory_search(request: web.Request) -> web.Response:
+        err = await auth_middleware(request)
+        if err:
+            return err
+        query = request.query.get("q", "")
+        if not query:
+            return web.json_response({"error": "q required"}, status=400)
+        from sheldon_bridge.skills.improver import CrossSessionMemory
+        memory = CrossSessionMemory()
+        results = memory.search(query, limit=10)
+        return web.json_response({
+            "query": query,
+            "matches": [
+                {"key": r.key, "content": r.content, "access_count": r.access_count}
+                for r in results
+            ],
+        })
+
     # ─── Session Search ─────────────────────────────────────────────────
 
     @routes.get("/sessions/search")

@@ -121,6 +121,8 @@ class AdminServer:
                 "capabilities": [
                     "server_status", "player_list", "tribe_info", "command_submit",
                     "event_stream", "config_get", "config_set", "broadcast",
+                    "ai_chat", "skill_list", "skill_trigger", "world_stats",
+                    "llm_stats", "session_recall",
                 ],
             }))
 
@@ -238,6 +240,94 @@ class AdminServer:
             }))
             return
 
+        if cmd == "ai_chat":
+            # Free-form AI chat from desktop admin (bypasses game mod)
+            query = msg.get("query", "")
+            if query:
+                result = await self._ai_chat(query)
+                await session.websocket.send(json.dumps({
+                    "type": "ai_chat_result", "query": query, "result": result
+                }))
+            return
+
+        if cmd == "skill_list":
+            # List all available skills and their auto-triggers
+            from sheldon_bridge.skills.registry import get_skill_registry
+            registry = get_skill_registry()
+            skills = []
+            for skill in registry._skills.values():
+                skills.append({
+                    "name": skill.meta.name,
+                    "description": skill.meta.description,
+                    "auto_triggers": skill.meta.auto_trigger_on or [],
+                    "tier": skill.meta.tier,
+                })
+            await session.websocket.send(json.dumps({
+                "type": "skill_list", "skills": skills
+            }))
+            return
+
+        if cmd == "skill_trigger":
+            # Manually trigger a skill by name
+            skill_name = msg.get("skill_name", "")
+            context = msg.get("context", {})
+            result = await self._trigger_skill(skill_name, context)
+            await session.websocket.send(json.dumps({
+                "type": "skill_trigger_result", "skill": skill_name, "result": result
+            }))
+            return
+
+        if cmd == "world_stats":
+            # Live world state: tracked players, tribe bases, spatial data
+            from sheldon_bridge.world_context import get_world_context
+            ctx = get_world_context()
+            stats = await ctx.get_stats()
+            await session.websocket.send(json.dumps({
+                "type": "world_stats", "data": stats
+            }))
+            return
+
+        if cmd == "llm_stats":
+            # Detailed LLM usage stats
+            from sheldon_bridge.metrics import get_metrics
+            metrics = get_metrics()
+            health = metrics.get_health()
+            await session.websocket.send(json.dumps({
+                "type": "llm_stats",
+                "data": {
+                    "total_requests": health.get("llm", {}).get("total_requests", 0),
+                    "total_cost_usd": health.get("llm", {}).get("total_cost_usd", 0),
+                    "total_input_tokens": health.get("llm", {}).get("total_input_tokens", 0),
+                    "total_output_tokens": health.get("llm", {}).get("total_output_tokens", 0),
+                    "top_players": health.get("top_players", []),
+                }
+            }))
+            return
+
+        if cmd == "session_recall":
+            # Search cross-session memory
+            query = msg.get("query", "")
+            if query:
+                from sheldon_bridge.skills.improver import CrossSessionMemory
+                memory = CrossSessionMemory()
+                results = memory.search(query, limit=5)
+                await session.websocket.send(json.dumps({
+                    "type": "session_recall", "query": query,
+                    "matches": [
+                        {"key": r.key, "content": r.content, "access_count": r.access_count}
+                        for r in results
+                    ]
+                }))
+            return
+
+        if cmd == "subscribe_world":
+            # Subscribe to real-time world state push events
+            session.subscription = "world"
+            await session.websocket.send(json.dumps({
+                "type": "subscribed", "category": "world"
+            }))
+            return
+
         await session.websocket.send(json.dumps({
             "type": "error", "error": f"Unknown command: {cmd}"
         }))
@@ -327,6 +417,104 @@ class AdminServer:
         """Remove a player's session (kick them)."""
         if self._game and hasattr(self._game, "sessions"):
             self._game.sessions.remove(player_id)
+
+    async def _ai_chat(self, query: str) -> dict[str, Any]:
+        """Run a free-form AI query from the desktop admin.
+
+        Creates a minimal session context and runs the agent so admins
+        can ask AI questions without being in-game. Useful for server
+        management, config help, skill creation, etc.
+        """
+        if not self._game:
+            return {"error": "Game server not connected"}
+
+        from sheldon_bridge.agent import Agent
+
+        # Create a minimal admin session context
+        class AdminPlayer:
+            player_id = "admin-desktop"
+            display_name = "Admin"
+            tier = "superadmin"
+            tribe_id = ""
+            position = {}
+            facing_yaw = 0.0
+
+        class AdminSessionCtx:
+            """Lightweight session for admin AI queries — no persistence."""
+            player = AdminPlayer()
+            conversation = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Sheldon, an AI assistant for an ARK: Survival Ascended "
+                        "server running on DuckBot. You help server admins manage the "
+                        "server, answer questions about game mechanics, and can execute "
+                        "admin commands. Be concise and helpful."
+                    ),
+                },
+                {"role": "user", "content": query},
+            ]
+            system_prompt = ""
+            total_input_tokens = 0
+            total_output_tokens = 0
+            total_cost = 0.0
+            created_at = 0.0
+            last_active = 0.0
+            lock = asyncio.Lock()
+
+            def get_messages(self):
+                return self.conversation
+
+            def track_usage(self, i, o, c):
+                self.total_input_tokens += i
+                self.total_output_tokens += o
+                self.total_cost += c
+
+            def add_assistant_message(self, msg):
+                self.conversation.append(msg)
+
+        session_ctx = AdminSessionCtx()
+        agent = Agent(
+            llm=self._game.llm,
+            registry=self._game.registry,
+            rate_limiter=self._game.rate_limiter,
+        )
+
+        try:
+            result = await agent.run(session_ctx, query)
+            return {
+                "response": result.response_text,
+                "stats": {
+                    "iterations": result.iterations,
+                    "tool_calls": result.tool_calls_made,
+                    "cost": round(result.total_cost, 6),
+                    "duration_ms": round(result.duration_ms, 1),
+                }
+            }
+        except Exception as e:
+            logger.error(f"Admin AI chat failed: {e}", exc_info=True)
+            return {"error": str(e)}
+
+    async def _trigger_skill(self, skill_name: str, context: dict) -> dict[str, Any]:
+        """Manually trigger a named skill with given context."""
+        from sheldon_bridge.skills.registry import get_skill_registry
+        registry = get_skill_registry()
+
+        skill = registry._skills.get(skill_name)
+        if not skill:
+            return {"error": f"Skill '{skill_name}' not found"}
+
+        try:
+            ctx = {
+                "game_handler": None,
+                "player": context.get("player"),
+                "tribe_data": context.get("tribe_data", {}),
+                "event_data": context.get("event_data", {}),
+            }
+            result = await skill.execute(ctx)
+            return {"message": result.message, "success": True}
+        except Exception as e:
+            return {"error": str(e), "success": False}
 
     async def _get_recent_events(self, limit: int = 50) -> list[dict]:
         """Get recent game events from DuckBotSessions."""
