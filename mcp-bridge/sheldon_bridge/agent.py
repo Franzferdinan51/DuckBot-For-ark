@@ -101,6 +101,24 @@ class Agent:
         # Update player position if provided (the mod sends it with each message)
         # Position is in the player_context, already set on the session
 
+        # ─── Self-Improving: Cross-Session Memory Recall ──────────────────────
+        # Before the loop, inject relevant memories so the AI knows from history
+        steps_log: list[str] = []  # track steps for agent improver
+        try:
+            from sheldon_bridge.skills.improver import get_cross_session_memory
+            memory = get_cross_session_memory()
+            # Recall memories relevant to this player's tribe or recent topics
+            recall_query = f"{session.player.display_name} {session.player.tribe_id or ''} {user_message[:50]}"
+            memories = memory.recall(recall_query, limit=3)
+            if memories:
+                memory_lines = ["\n## Past Lessons (from other sessions)"]
+                for mem in memories:
+                    memory_lines.append(f"- {mem.content}")
+                # Prepend as system message so LLM sees it
+                session.add_system_prompt("\n".join(memory_lines))
+        except Exception as e:
+            logger.debug(f"Cross-session memory recall skipped: {e}")
+
         # Get tier-appropriate tools
         tools = self.registry.to_llm_format(tier)
 
@@ -165,6 +183,36 @@ class Agent:
                     "content": response_text,
                 })
                 session.track_usage(total_input, total_output, total_cost)
+
+                # ─── Self-Improving: Review completed task ───────────────────────
+                # If this was a multi-step task, ask the improver to analyze it
+                if tool_calls_made >= 3:
+                    try:
+                        from sheldon_bridge.skills.improver import (
+                            get_agent_improver,
+                            get_cross_session_memory,
+                        )
+                        from sheldon_bridge.skills.registry import get_skill_registry
+                        improver = get_agent_improver(get_skill_registry())
+                        improver.review_completed_task(
+                            task_description=user_message[:100],
+                            steps=steps_log[-10:],  # last 10 steps
+                            successful=True,
+                            player_tier=tier,
+                        )
+                        # Store useful patterns in cross-session memory
+                        if tool_calls_made >= 5:
+                            memory = get_cross_session_memory()
+                            memory.store(
+                                key=f"multi_step:{tier}:{user_message[:30].lower()}",
+                                content=(
+                                    f"Task: '{user_message[:80]}' solved in {tool_calls_made} steps. "
+                                    f"Steps: {' -> '.join(steps_log[-5:])}"
+                                ),
+                                tags=["multi-step", tier],
+                            )
+                    except Exception as e:
+                        logger.debug(f"Agent improver review skipped: {e}")
 
                 return AgentResult(
                     response_text=response_text,
@@ -244,6 +292,7 @@ class Agent:
                     session.add_tool_result(tool_call.id, tool_name, result_str)
                     from sheldon_bridge.metrics import get_metrics
                     get_metrics().record_tool_call(tool_name, 0, error=False)
+                    steps_log.append(tool_name)  # track for agent improver
 
                 except asyncio.TimeoutError:
                     logger.error(f"Tool '{tool_name}' timed out after {TOOL_EXECUTION_TIMEOUT}s")
