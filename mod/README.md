@@ -27,6 +27,15 @@ To open, modify, or fork the mod:
    ```
 3. Open the DevKit. The mod content appears under **All > Plugins > SheldonAI Content**
 
+For reproducible rebuilds, generate the repo-local UI manifest first:
+
+```powershell
+python scripts/build_sheldon_mod.py
+```
+
+That writes `mod/generated/sheldon_mod_build_manifest.json`, which documents the intended
+PrimalUI widget layout, WebSocket message routing, and `stream_token` handling for the in-game UI.
+
 ## Blueprint Overview
 
 | Asset | Type | Purpose |
@@ -46,3 +55,6 @@ The mod uses a **server-authoritative** design:
 - Player messages flow: Client → NetExec → Server → WebSocket → Bridge → LLM → Bridge → WebSocket → Server → NetExec → Client
 
 This means only the server needs network access to the Bridge — players don't need any special connectivity.
+
+The companion desktop app is separate. It talks to the admin WebSocket on `:8444` for monitoring
+and AI chat, but it does not replace `WBP_SheldonChat` or the PrimalUI in-game surface.

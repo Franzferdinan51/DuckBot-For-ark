@@ -267,7 +267,7 @@ class BridgeServer:
                 facing_yaw=msg.get("facing_yaw", 0.0),
             )
 
-        request_id = msg.get("request_id")
+        request_id = self._extract_request_id(msg)
 
         # ── Hook dispatch (openclaw plugin-hooks pattern) ───────────────
         # Hooks run before the agent loop — high-priority hooks can short-circuit
@@ -282,9 +282,10 @@ class BridgeServer:
         )
         hook_result = await dispatch_hook("on_player_message_received", hook_ctx)
         if hook_result.skipped:
-            reply = {"type": "reply", "message": hook_result.response}
-            if request_id is not None:
-                reply["request_id"] = request_id
+            reply = self._with_request_id(
+                {"type": "reply", "message": hook_result.response},
+                request_id,
+            )
             await websocket.send(json.dumps(reply))
             return  # Hook handled — skip intent-based routing
 
@@ -298,18 +299,14 @@ class BridgeServer:
         # ── Fast path: HELP ────────────────────────────────────────────────
         if intent.intent_type == IntentType.HELP:
             help_text = self._build_help_response(session.player.tier, intent)
-            reply = {"type": "reply", "message": help_text}
-            if request_id is not None:
-                reply["request_id"] = request_id
+            reply = self._with_request_id({"type": "reply", "message": help_text}, request_id)
             await websocket.send(json.dumps(reply))
             return
 
         # ── Fast path: CHAT (casual conversation, no tools) ────────────────
         if intent.intent_type == IntentType.CHAT and intent.confidence >= 0.8:
             reply_text = self._build_casual_response(text, session)
-            reply = {"type": "reply", "message": reply_text}
-            if request_id is not None:
-                reply["request_id"] = request_id
+            reply = self._with_request_id({"type": "reply", "message": reply_text}, request_id)
             await websocket.send(json.dumps(reply))
             return
 
@@ -317,7 +314,7 @@ class BridgeServer:
         if intent.intent_type == IntentType.QUERY:
             await websocket.send(json.dumps({"type": "thinking"}))
             if request_id is not None:
-                await websocket.send(json.dumps({"type": "thinking", "request_id": request_id}))
+                await websocket.send(json.dumps(self._with_request_id({"type": "thinking"}, request_id)))
 
             async def stream_send(msg: dict) -> None:
                 if request_id is not None:
@@ -333,9 +330,7 @@ class BridgeServer:
         # ── COMMAND / ACTION: full agentic loop ────────────────────────────
         # Send thinking indicator
         thinking = {"type": "thinking"}
-        if request_id is not None:
-            thinking["request_id"] = request_id
-        await websocket.send(json.dumps(thinking))
+        await websocket.send(json.dumps(self._with_request_id(thinking, request_id)))
 
         async def stream_send(msg: dict) -> None:
             if request_id is not None:
@@ -360,9 +355,7 @@ class BridgeServer:
                     "duration_ms": round(result.duration_ms, 1),
                 },
             }
-            if request_id is not None:
-                reply_msg["request_id"] = request_id
-            await websocket.send(json.dumps(reply_msg))
+            await websocket.send(json.dumps(self._with_request_id(reply_msg, request_id)))
             return
 
         logger.info(
@@ -373,6 +366,22 @@ class BridgeServer:
             f"${result.total_cost:.4f}, "
             f"{result.duration_ms:.0f}ms"
         )
+
+    @staticmethod
+    def _extract_request_id(msg: dict):
+        """Accept both modern request_id and older id fields."""
+        if "request_id" in msg:
+            return msg.get("request_id")
+        return msg.get("id")
+
+    @staticmethod
+    def _with_request_id(payload: dict, request_id):
+        """Attach both request_id and id for mixed client compatibility."""
+        if request_id is None:
+            return payload
+        payload["request_id"] = request_id
+        payload["id"] = request_id
+        return payload
 
     async def _run_query_agent(
         self, session, text: str, intent, stream_send

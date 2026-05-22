@@ -98,7 +98,8 @@ class AdminServer:
             raw = await asyncio.wait_for(websocket.recv(), timeout=10.0)
             auth_msg = json.loads(raw)
 
-            if auth_msg.get("type") != "admin_auth":
+            auth_type = auth_msg.get("type")
+            if auth_type not in ("admin_auth", "auth"):
                 await websocket.close(4001, "First message must be admin_auth")
                 return
 
@@ -108,23 +109,23 @@ class AdminServer:
                 await websocket.close(4001, "Authentication failed")
                 return
 
-            session_id = auth_msg.get("session_id") or f"admin-{int(time.time())}"
+            legacy_player = auth_msg.get("player", {})
+            session_id = (
+                auth_msg.get("session_id")
+                or legacy_player.get("id")
+                or legacy_player.get("player_id")
+                or f"admin-{int(time.time())}"
+            )
             session = AdminSession(id=session_id, websocket=websocket, authorized=True)
             self._sessions[session_id] = session
 
             # Send server info snapshot
             server_info = await self._get_server_info()
-            await websocket.send(json.dumps({
-                "type": "auth_success",
-                "session_id": session_id,
-                "server": server_info,
-                "capabilities": [
-                    "server_status", "player_list", "tribe_info", "command_submit",
-                    "event_stream", "config_get", "config_set", "broadcast",
-                    "ai_chat", "skill_list", "skill_trigger", "world_stats",
-                    "llm_stats", "session_recall",
-                ],
-            }))
+            await websocket.send(json.dumps(self._build_auth_success_payload(
+                session_id=session_id,
+                server_info=server_info,
+                legacy_player=legacy_player,
+            )))
 
             logger.info(f"Admin desktop connected: {session_id} from {websocket.remote_address}")
 
@@ -156,6 +157,24 @@ class AdminServer:
 
     async def _handle_message(self, msg: dict, session: AdminSession) -> None:
         """Route an admin command message."""
+        legacy_type = msg.get("type")
+        if legacy_type == "ping":
+            await session.websocket.send(json.dumps({"type": "pong", "time": time.time()}))
+            return
+
+        if legacy_type == "position_update":
+            return
+
+        if legacy_type == "player_message":
+            query = msg.get("message", "").strip()
+            if query:
+                await self._legacy_player_chat(
+                    session,
+                    query,
+                    self._extract_request_id(msg),
+                )
+            return
+
         cmd = msg.get("cmd")
 
         if cmd == "ping":
@@ -382,9 +401,61 @@ class AdminServer:
             }))
             return
 
-        await session.websocket.send(json.dumps({
-            "type": "error", "error": f"Unknown command: {cmd}"
-        }))
+            await session.websocket.send(json.dumps({
+                "type": "error", "error": f"Unknown command: {cmd}"
+            }))
+
+    @staticmethod
+    def _extract_request_id(msg: dict):
+        if "request_id" in msg:
+            return msg.get("request_id")
+        return msg.get("id")
+
+    @staticmethod
+    def _with_request_id(payload: dict, request_id):
+        if request_id is None:
+            return payload
+        payload["request_id"] = request_id
+        payload["id"] = request_id
+        return payload
+
+    def _build_auth_success_payload(
+        self,
+        session_id: str,
+        server_info: dict[str, Any],
+        legacy_player: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        legacy_player = legacy_player or {}
+        player_id = (
+            legacy_player.get("player_id")
+            or legacy_player.get("id")
+            or session_id
+        )
+        display_name = legacy_player.get("display_name") or legacy_player.get("name") or "ArkDuckBot"
+        tier = legacy_player.get("tier") or "admin"
+        tribe_id = legacy_player.get("tribe_id") or legacy_player.get("tribe") or ""
+        return {
+            "type": "auth_success",
+            "session_id": session_id,
+            "player_id": player_id,
+            "tier": tier,
+            "server": server_info,
+            "player": {
+                "id": player_id,
+                "player_id": player_id,
+                "name": display_name,
+                "display_name": display_name,
+                "tier": tier,
+                "tribe": tribe_id,
+                "tribe_id": tribe_id,
+            },
+            "capabilities": [
+                "server_status", "player_list", "tribe_info", "command_submit",
+                "event_stream", "config_get", "config_set", "broadcast",
+                "ai_chat", "skill_list", "skill_trigger", "world_stats",
+                "llm_stats", "session_recall",
+            ],
+        }
 
     async def _get_server_info(self) -> dict[str, Any]:
         """Get server status snapshot."""
@@ -632,6 +703,96 @@ class AdminServer:
             await session.websocket.send(json.dumps({
                 "type": "error", "error": str(e)
             }))
+
+    async def _legacy_player_chat(
+        self,
+        session: AdminSession,
+        query: str,
+        request_id,
+    ) -> None:
+        """Compatibility path for the current desktop client's player_message shape."""
+        await session.websocket.send(json.dumps(self._with_request_id({"type": "thinking"}, request_id)))
+
+        if not self._game:
+            await session.websocket.send(json.dumps(self._with_request_id({
+                "type": "error",
+                "message": "Game server not connected",
+                "error": "Game server not connected",
+            }, request_id)))
+            return
+
+        from sheldon_bridge.agent import Agent
+
+        class AdminPlayer:
+            player_id = "admin-desktop"
+            display_name = "Admin"
+            tier = "superadmin"
+            tribe_id = ""
+            position = {}
+            facing_yaw = 0.0
+
+        class AdminSessionCtx:
+            player = AdminPlayer()
+            conversation = [
+                {"role": "system", "content": (
+                    "You are Sheldon, an AI assistant for an ARK: Survival Ascended "
+                    "server running on DuckBot. You help server admins manage the "
+                    "server, answer questions about game mechanics, and can execute "
+                    "admin commands. Be concise and helpful."
+                )},
+                {"role": "user", "content": query},
+            ]
+            system_prompt = ""
+            total_input_tokens = 0
+            total_output_tokens = 0
+            total_cost = 0.0
+            created_at = 0.0
+            last_active = 0.0
+            lock = asyncio.Lock()
+
+            def get_messages(self):
+                return self.conversation
+
+            def track_usage(self, i, o, c):
+                self.total_input_tokens += i
+                self.total_output_tokens += o
+                self.total_cost += c
+
+            def add_assistant_message(self, msg):
+                self.conversation.append(msg)
+
+        session_ctx = AdminSessionCtx()
+        agent = Agent(
+            llm=self._game.llm,
+            registry=self._game.registry,
+            rate_limiter=self._game.rate_limiter,
+        )
+
+        async def stream_send(msg: dict) -> None:
+            out = {"type": "stream_token", "content": msg.get("content", "")}
+            await session.websocket.send(json.dumps(self._with_request_id(out, request_id)))
+
+        try:
+            result = await agent.run_streaming(session_ctx, query, stream_send)
+            reply = self._with_request_id({
+                "type": "reply",
+                "message": result.response_text,
+                "response": result.response_text,
+                "stats": {
+                    "iterations": result.iterations,
+                    "tool_calls": result.tool_calls_made,
+                    "cost": round(result.total_cost, 6),
+                    "duration_ms": round(result.duration_ms, 1),
+                },
+            }, request_id)
+            await session.websocket.send(json.dumps(reply))
+        except Exception as e:
+            logger.error(f"Legacy desktop AI chat failed: {e}", exc_info=True)
+            await session.websocket.send(json.dumps(self._with_request_id({
+                "type": "error",
+                "message": str(e),
+                "error": str(e),
+            }, request_id)))
 
     async def _ai_tool_execute(self, tool_name: str, args: dict) -> dict[str, Any]:
         """Execute a specific tool directly (for structured admin commands).

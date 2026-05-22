@@ -15,6 +15,11 @@ Use the ARK DevKit Bridge to programmatically create Blueprints, variables, func
 and nodes. Nodes with full pin wiring are pasted via the T3D clipboard format.
 This is DRAMATICALLY faster than manual Blueprint editing.
 
+In this repo, the reproducible source of truth for the in-game UI is
+`scripts/build_sheldon_mod.py`, which generates `mod/generated/sheldon_mod_build_manifest.json`.
+That manifest defines the widget layout, message routing, and bridge protocol expected by the
+compiled `.uasset` assets.
+
 **Requires:** DevKit editor running on your workstation + the DevKit Bridge TCP server.
 **See:** The DevKit Bridge repository for setup and reference.
 
@@ -68,15 +73,18 @@ Done! Complete Blueprint mod.
 # 1. Verify bridge is up
 ~/bin/ark-devkit status
 
-# 2. Run the mod generation script
-ark-devkit -f scripts/build_sheldon_mod.py
+# 2. Generate the UI/build manifest from this repo
+python scripts/build_sheldon_mod.py
 
-# 3. Script will prompt you to paste into each graph tab:
+# 3. Feed the generated manifest into your DevKit Bridge automation script
+#    (bridge implementation is workstation-specific)
+
+# 4. The bridge script should prompt you to paste into each graph tab:
 #    "Clipboard loaded with EventGraph nodes. Click in EventGraph and press Ctrl+V"
 #    "Clipboard loaded with ReadConfig nodes. Click in ReadConfig tab and press Ctrl+V"
 #    etc.
 
-# 4. Script compiles and saves when done
+# 5. The bridge script compiles and saves when done
 ```
 
 ### T3D Format Reference
@@ -140,13 +148,13 @@ This serves as the reference template for generating T3D text.
 - On WebSocket Connected → SET IsConnected true → SendAuthMessage
 - On Websocket Connection Error → SET IsConnected false → Print → Delay 5s → ConnectToBridge (retry)
 - On WebSocket Closed → SET IsConnected false → SET IsAuthenticated false → Print
-- On WebSocket Message Recieved → Parse type → Branch auth_success/reply/thinking/error
+- On WebSocket Message Recieved → Parse type → Branch auth_success/stream_token/reply/thinking/error
 
 ### Blueprint 2: WBP_SheldonChat (Widget, parent: PrimalUI)
 
 **UI Layout:** Dark panel (500x600), header ("Sheldon AI" + close button), ScrollBox with ChatHistory VerticalBox, input area (EditableTextBox + Send button)
 
-**Logic:** Send button → get text → add to chat → call SendPlayerMessage → clear input. Close button → Remove From Parent. Enter key → same as send. DisplayResponse/ShowThinkingIndicator/DisplayError functions for WebSocket manager callbacks.
+**Logic:** Send button → get text → add to chat → call SendPlayerMessage → clear input. Close button → Remove From Parent. Enter key → same as send. DisplayResponse/ShowThinkingIndicator/DisplayError functions for WebSocket manager callbacks. `stream_token` should append into a live assistant bubble, and `reply` should finalize that bubble.
 
 ### Blueprint 3: BP_SheldonMapExtension (Map Extension)
 
@@ -171,6 +179,7 @@ This serves as the reference template for generating T3D text.
 ### Bridge Responses
 - `{"type":"auth_success","player_id":"...","tier":"...","tools_available":12}`
 - `{"type":"thinking"}`
+- `{"type":"stream_token","content":"partial text"}`
 - `{"type":"reply","message":"...","stats":{...}}`
 - `{"type":"error","message":"..."}`
 - Auth failure: WebSocket close code 4001
@@ -186,6 +195,7 @@ Port 8443, auth timeout 10s, ping interval 20s, max message 1MB.
 - Audit functions MUST be implemented or WebSocket operations silently fail
 - Widget parent MUST be PrimalUI (crashes otherwise)
 - Server-authoritative: WebSocket on Authority branch, UI on Remote branch
+- The desktop app on `:8444` is a companion/admin surface, not a replacement for the in-game widget
 - INI reading: GetStringOption on ShooterGameMode (Section + OptionName params)
 - "On WebSocket Message Recieved" is misspelled in the DevKit — use that exact spelling
 - Map Extensions, NOT GameMode (only first mod's GameMode loads)

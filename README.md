@@ -9,12 +9,12 @@ This repo is a practical fork of the SheldonAI concept. Some Python package name
 - `plugin/`: ServerAPI plugin for ASA, built in Visual Studio.
 - `mcp-bridge/`: Python bridge with WebSocket server, tool registry, auth, sessions, metrics, audit logging, and LLM provider support.
 - [Ark-DuckBot-Desktop](https://github.com/Franzferdinan51/Ark-DuckBot-Desktop/tree/master): companion desktop app for managing and observing the bridge.
-- `mod/`: DevKit assets for an in-game UI path and map extension content.
+- `mod/`: DevKit assets for the actual in-game PrimalUI chat surface and map extension content.
 - `data/`: bundled ARK knowledge data used by the bridge.
 
-The bridge and plugin are the primary working path. The `mod/` directory is useful source material, but the repo is not just a Blueprint mod.
+The bridge and plugin are the primary working path. The `mod/` directory is the real in-game UI path, while the desktop app is a separate companion/admin client.
 
-The desktop companion is the operator-facing client for this stack. It keeps one connection to the ARK server for live map/player state and a second connection to the MCP bridge for AI chat, notifications, and quick actions. In practice, the mod and plugin provide the game-side data and command surface, while the desktop app gives you a persistent UI for monitoring and interacting with both.
+The desktop companion is the operator-facing client for this stack. It keeps one connection to the ARK server for live map/player state and a second connection to the MCP bridge for AI chat, notifications, and quick actions. In practice, the mod/plugin pair own the in-game command and UI surface, while the desktop app gives you a persistent out-of-game admin view.
 
 ## Architecture
 
@@ -44,6 +44,7 @@ The plugin captures chat commands and game events, then forwards structured mess
 plugin/        Visual Studio solution and C++ source
 mcp-bridge/    Python package, tests, Dockerfile, config example
 mod/           ASA DevKit assets (.uasset, .uplugin)
+scripts/       UI/build manifest generator for the DevKit mod path
 data/          ARK vanilla data and data build script
 docs/          architecture, permissions, and project notes
 examples/      sample config and prompt files
@@ -83,6 +84,15 @@ Notes:
 5. Copy `plugin/Binaries/Release/DuckBot.dll` into `ArkApi/Plugins/DuckBot/` on the server.
 
 See [plugin/README.md](plugin/README.md) and [MOD_BUILD_GUIDE.md](MOD_BUILD_GUIDE.md) for the expected filesystem layout and deployment details.
+
+For the in-game UI contract, run:
+
+```powershell
+python scripts/build_sheldon_mod.py
+```
+
+This writes `mod/generated/sheldon_mod_build_manifest.json`, which documents the intended
+`WBP_SheldonChat` layout, `BP_SheldonWebSocket` message routing, and `stream_token` behavior.
 
 ## Testing
 
