@@ -80,6 +80,48 @@ async def skill_update(skill_name: str, improvements: str, ctx: dict | None = No
     }
 
 
+async def bundle_load(bundle_slug: str, ctx: dict | None = None) -> dict[str, Any]:
+    """Load a skill bundle (group of skills under one trigger).
+
+    Bundles group multiple skills together under a single slash-command.
+    Example: /tribe-management loads all tribe skills at once.
+
+    Args:
+        bundle_slug: The bundle identifier (e.g., "tribe-management", "admin-commands").
+        ctx: Injected context (game_handler, player, tribe_data).
+    """
+    from sheldon_bridge.skills.bundles import get_bundle_registry
+
+    registry = get_bundle_registry()
+    bundle = registry.get(bundle_slug)
+
+    if not bundle:
+        return {
+            "success": False,
+            "error": f"Bundle '{bundle_slug}' not found. Available: {[b.slug for b in registry.all()]}",
+        }
+
+    valid_skills, missing = registry.resolve_bundle(bundle_slug)
+
+    if missing:
+        return {
+            "success": False,
+            "error": f"Bundle '{bundle_slug}' references unknown skills: {missing}. Available skills: {[s.meta.name for s in get_skill_registry().all()]}",
+        }
+
+    return {
+        "success": True,
+        "message": f"Bundle '{bundle.name}' loaded — {len(valid_skills)} skills ready",
+        "data": {
+            "bundle": bundle.name,
+            "slug": bundle.slug,
+            "skills": [s["name"] for s in valid_skills],
+            "description": bundle.description,
+            "instruction": bundle.instruction,
+        },
+    }
+
+
 def register_skill_tools(registry) -> None:
     """Register skill tools with the tool registry.
 
@@ -108,3 +150,8 @@ def register_skill_tools(registry) -> None:
             ctx: Context passed automatically.
         """
         return await skill_update(skill_name, improvements, ctx)
+
+    @tool(tier="player", description="Load a skill bundle — activates multiple skills at once under one trigger (e.g., 'tribe-management' loads all tribe tools). Bundles are defined in YAML files.")
+    async def load_bundle(bundle_slug: str, ctx: dict | None = None) -> dict[str, Any]:
+        """Load a skill bundle by slug identifier."""
+        return await bundle_load(bundle_slug, ctx)

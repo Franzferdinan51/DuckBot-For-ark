@@ -35,6 +35,11 @@ from sheldon_bridge.skills.registry import get_skill_registry
 _skills = get_skill_registry()
 _skills.discover()
 
+# Discover skill bundles (hermes-agent pattern — group multiple skills under one trigger)
+from sheldon_bridge.skills.bundles import get_bundle_registry
+_bundles = get_bundle_registry()
+_bundles.discover()
+
 logger = logging.getLogger(__name__)
 
 

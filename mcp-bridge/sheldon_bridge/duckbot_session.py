@@ -223,6 +223,11 @@ class DuckBotSession:
         if skills_context:
             parts.append(f"\n\n{skills_context}")
 
+        # Skill bundles (hermes-agent — group multiple skills under one trigger)
+        bundles_context = self._get_bundles_context()
+        if bundles_context:
+            parts.append(f"\n\n{bundles_context}")
+
         return "\n\n".join(parts)
 
     def _get_skills_context(self) -> str:
@@ -247,6 +252,27 @@ class DuckBotSession:
             )
 
         return "\n".join(skill_lines)
+
+    def _get_bundles_context(self) -> str:
+        """Build the skill bundles section for the system prompt."""
+        from sheldon_bridge.skills.bundles import get_bundle_registry
+
+        registry = get_bundle_registry()
+        bundles = registry.all()
+
+        if not bundles:
+            return ""
+
+        bundle_lines = ["## Skill Bundles\n\nBundles activate multiple skills at once."]
+        bundle_lines.append("Use the load_bundle tool with the bundle slug to activate one.\n")
+
+        for b in bundles:
+            bundle_lines.append(
+                f"- **/{b.slug}**: {b.description} "
+                f"(loads {len(b.skills)} skills: {', '.join(b.skills)})"
+            )
+
+        return "\n".join(bundle_lines)
 
     def get_messages(self) -> list[dict]:
         """Get conversation history with game events injected as system context."""

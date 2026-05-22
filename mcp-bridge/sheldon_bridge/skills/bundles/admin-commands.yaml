@@ -1,0 +1,10 @@
+name: Admin Commands
+description: All admin-level server management commands — config, backups, shutdown, broadcast
+skills:
+  - execute_console_command
+  - broadcast
+instruction: |
+  Admin-only bundle for server operators. Provides safe access to server configuration,
+  graceful shutdown, and broadcast capabilities. All commands require admin tier.
+version: "1.0.0"
+author: DuckBot

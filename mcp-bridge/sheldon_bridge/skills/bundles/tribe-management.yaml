@@ -1,0 +1,10 @@
+name: Tribe Management
+description: All tribe management tools loaded together — dino control, feeding, alerts, war management
+skills:
+  - auto_feed
+  - wild_dino_alert
+instruction: |
+  When a player invokes /tribe-management, load all tribe skills and present them
+  as a unified workflow. Useful for new tribe leaders or during raid nights.
+version: "1.0.0"
+author: DuckBot
