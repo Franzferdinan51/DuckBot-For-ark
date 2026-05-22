@@ -14,21 +14,13 @@
 #include <vector>
 #include <unordered_map>
 #include <mutex>
+#include <optional>
+#include <chrono>
 
 namespace DuckBot
 {
     // ─── Forward Declarations ─────────────────────────────────────────────────
     class Plugin;
-    class TribeCommandHub;
-    class KitSystem;
-    class EconomySystem;
-    class TeleportSystem;
-    class ModerationSystem;
-    class DinoTracker;
-    class MapMarkerSystem;
-    class ChatGamesSystem;
-    class EventSystem;
-    class MCPBridge;
 
     // ─── Permissions ────────────────────────────────────────────────────────────
     constexpr const char* PERM_ADMIN = "duckbot.admin";
@@ -36,20 +28,7 @@ namespace DuckBot
     constexpr const char* PERM_VIP = "duckbot.vip";
     constexpr const char* PERM_USE = "duckbot.use";
 
-    // ─── Helpers ────────────────────────────────────────────────────────────────
-    inline std::string to_lower(const std::string& s) {
-        std::string r = s;
-        std::transform(r.begin(), r.end(), r.begin(), ::tolower);
-        return r;
-    }
-
-    inline std::vector<std::string> split_args(const std::string& str, int argc, const char* argv[]) {
-        std::vector<std::string> args;
-        for (int i = 0; i < argc; ++i) if (argv[i]) args.push_back(argv[i]);
-        return args;
-    }
-
-    // ─── Config ───────────────────────────────────────────────────────────────────
+    // ─── Config ─────────────────────────────────────────────────────────────────
     struct PluginConfig {
         std::string mcp_host = "localhost";
         int mcp_port = 8443;
@@ -67,7 +46,7 @@ namespace DuckBot
         std::string name;
         int level = 1;
         int balance = 0;
-        uint64 tribe_id = 0;
+        int tribe_id = 0;
         bool is_muted = false;
         float home_x = 0, home_y = 0, home_z = 0;
         std::chrono::steady_clock::time_point last_work;
@@ -87,10 +66,9 @@ namespace DuckBot
 
     // ─── Tribe Data ─────────────────────────────────────────────────────────────
     struct TribeData {
-        uint64 tribe_id = 0;
+        int tribe_id = 0;
         std::string name;
         std::vector<DinoSnapshot> dinos;
-        std::vector<PlayerData*> members;
         int active_alerts = 0;
     };
 
@@ -107,6 +85,8 @@ namespace DuckBot
         std::vector<KitItem> items;
         int cooldown_seconds = 3600;
         std::string required_permission;
+        std::string dino_species;   // if non-empty, spawn a dino instead of giving items
+        int dino_level = 30;
     };
 
     // ─── Map Marker ─────────────────────────────────────────────────────────────
@@ -116,46 +96,49 @@ namespace DuckBot
         float x = 0, y = 0, z = 0;
         MarkerType type = MarkerType::Custom;
         std::string color = "#00FF00";
+        int created_by = 0;
     };
 
-    // ─── Plugin ─────────────────────────────────────────────────────────────────
+    // ─── Plugin Singleton ───────────────────────────────────────────────────────
     class Plugin {
     public:
         static Plugin* Get() { return singleton_; }
-        static void Init();
-        static void Shutdown();
+
+        // ─── Lifecycle ─────────────────────────────────────────────────────────
+        static void Load();
+        static void Unload();
 
         // ─── Logging ─────────────────────────────────────────────────────────
         void LogInfo(const std::string& msg);
         void LogError(const std::string& msg);
-        void LogDebug(const std::string& msg);
 
         // ─── Config ─────────────────────────────────────────────────────────
         PluginConfig& GetConfig() { return config_; }
-        void LoadConfig();
-        void SaveConfig();
+        void ReadConfig();
+        void ReloadConfigCmd(AShooterPlayerController* pc, FString* cmd, bool);
 
         // ─── Player Data ──────────────────────────────────────────────────────
         PlayerData* GetOrCreatePlayer(uint64 steam_id);
-        PlayerData* GetPlayer(uint64 steam_id);
-        void SavePlayerData();
-        void LoadPlayerData();
+        PlayerData* GetPlayerBySteamId(uint64 steam_id);
+        int GetPlayerTribeId(AShooterPlayerController* pc);
+        void SaveAllData();
+        void LoadAllData();
 
-        // ─── Permissions ──────────────────────────────────────────────────────
-        bool HasPermission(uint64 steam_id, const std::string& perm);
+        // ─── Permissions (AsaApi pattern) ───────────────────────────────────────
+        bool HasPermission(AShooterPlayerController* pc, const std::string& perm);
 
-        // ─── Chat Reply ──────────────────────────────────────────────────────
-        void SendReply(uint64 steam_id, const std::string& message);
+        // ─── Messaging (AsaApi pattern) ────────────────────────────────────────
+        void SendReply(AShooterPlayerController* pc, const std::string& message);
+        void SendReplyToPlayer(AShooterPlayerController* pc, const std::string& message, float r = 1.0f, float g = 1.0f, float b = 1.0f, float a = 1.0f);
         void SendBroadcast(const std::string& message);
 
         // ─── Data Access ───────────────────────────────────────────────────────
         std::vector<PlayerData>& GetAllPlayers() { return players_; }
         std::vector<TribeData>& GetAllTribes() { return tribes_; }
         std::vector<KitDefinition>& GetAllKits() { return kits_; }
-        std::unordered_map<std::string, MapMarker>& GetWarpDatabase() { return warps_; }
-
-        // ─── MCP Bridge ─────────────────────────────────────────────────────
-        MCPBridge* GetMCPBridge() { return mcp_bridge_; }
+        std::unordered_map<std::string, MapMarker>& GetWarpDB() { return warps_; }
+        std::unordered_map<std::string, MapMarker>& GetMarkerDB() { return markers_; }
+        std::unordered_map<uint64, std::chrono::steady_clock::time_point>& GetKitCooldowns() { return kit_cooldowns_; }
 
     private:
         static Plugin* singleton_;
@@ -164,61 +147,76 @@ namespace DuckBot
         std::vector<TribeData> tribes_;
         std::vector<KitDefinition> kits_;
         std::unordered_map<std::string, MapMarker> warps_;
+        std::unordered_map<std::string, MapMarker> markers_;  // tribe markers keyed by "tribeId:name"
+        std::unordered_map<uint64, std::chrono::steady_clock::time_point> kit_cooldowns_;
         std::mutex data_mutex_;
 
         Plugin() = default;
         ~Plugin() = default;
         Plugin(const Plugin&) = delete;
         Plugin& operator=(const Plugin&) = delete;
-
-        MCPBridge* mcp_bridge_ = nullptr;
     };
 
-    // ─── Command Handlers ──────────────────────────────────────────────────────
-    namespace Commands {
-        void OnTribeCommand(void* player, int argc, const char** argv);
-        void OnTDinosCommand(void* player, int argc, const char** argv);
-        void OnTribeAlertCommand(void* player, int argc, const char** argv);
-        void OnDinosCommand(void* player, int argc, const char** argv);
-        void OnKitCommand(void* player, int argc, const char** argv);
-        void OnKitsCommand(void* player, int argc, const char** argv);
-        void OnBalCommand(void* player, int argc, const char** argv);
-        void OnHomeCommand(void* player, int argc, const char** argv);
-        void OnSetHomeCommand(void* player, int argc, const char** argv);
-        void OnTPRCommand(void* player, int argc, const char** argv);
-        void OnTPAcceptCommand(void* player, int argc, const char** argv);
-        void OnWarpCommand(void* player, int argc, const char** argv);
-        void OnSetWarpCommand(void* player, int argc, const char** argv);
-        void OnMarkerCommand(void* player, int argc, const char** argv);
-        void OnGridMapCommand(void* player, int argc, const char** argv);
-        void OnKickCommand(void* player, int argc, const char** argv);
-        void OnBanCommand(void* player, int argc, const char** argv);
-        void OnMuteCommand(void* player, int argc, const char** argv);
-        void OnSlayCommand(void* player, int argc, const char** argv);
-        void OnFeedCommand(void* player, int argc, const char** argv);
-        void OnCoinFlipCommand(void* player, int argc, const char** argv);
-        void OnAIBrainCommand(void* player, int argc, const char** argv);
-        void OnReloadCommand(void* player, int argc, const char** argv);
-        void OnSaveCommand(void* player, int argc, const char** argv);
-        void OnStatusCommand(void* player, int argc, const char** argv);
-        void OnDailyCommand(void* player, int argc, const char** argv);
-        void OnWorkCommand(void* player, int argc, const char** argv);
-        void OnBreedsCommand(void* player, int argc, const char** argv);
-        void OnKibbleCommand(void* player, int argc, const char** argv);
-        void OnHelpCommand(void* player, int argc, const char** argv);
-        void OnEventCommand(void* player, int argc, const char** argv);
-        void OnEventsCommand(void* player, int argc, const char** argv);
-        void OnDropCommand(void* player, int argc, const char** argv);
+    // ─── Chat Command Callbacks (AsaApi signature) ────────────────────────────
+    // AsaApi chat command callback signature:
+    // void Cmd(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command)
+    namespace ChatCommands {
+        void OnHelp(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnTribe(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnTDinos(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnTribeAlert(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnDinos(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnKits(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnKit(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnBal(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnHome(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnSetHome(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnTPR(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnTPAccept(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnWarp(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnSetWarp(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnMarker(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnGridMap(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnKick(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnBan(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnUnban(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnMute(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnUnmute(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnSlay(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnSlayPlayer(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnTPHere(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnFeed(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnCoinFlip(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnDaily(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnWork(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnBreeds(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnKibble(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnAIBrain(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnAIReset(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnSave(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnReload(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnStatus(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnEvent(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnEvents(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnDrop(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
+        void OnPay(AShooterPlayerController* pc, FString* cmd, bool is_from_logged_command);
     }
 
-    // ─── Hook Callbacks ─────────────────────────────────────────────────────────
+    // ─── Rcon Command Callbacks ─────────────────────────────────────────────────
+    namespace RconCommands {
+        // Rcon callback signature same as chat: (RCONClientConnection*, RCONPacket*, UWorld*)
+    }
+
+    // ─── Console Command Callbacks ─────────────────────────────────────────────
+    namespace ConsoleCommands {
+        void OnReloadConsole(AShooterPlayerController* pc, FString* cmd, bool);
+    }
+
+    // ─── Hooks ─────────────────────────────────────────────────────────────────
     namespace Hooks {
-        void OnPlayerConnected(void* player);
-        void OnPlayerDisconnected(void* player);
-        void OnChatMessage(void* player, const char* message, int mode);
-        void OnDinoTamed(void* player, void* dino);
-        void OnBabyBorn(void* baby, void* mother, void* player);
-        void OnDinoDied(void* dino, void* killer);
-        void OnPlayerLevelUp(void* player, int new_level);
+        // DECLARE_HOOK callbacks (following AsaApi pattern from Permissions plugin)
+        DECLARE_HOOK(AShooterGameMode_HandleNewPlayer, bool, AShooterGameMode*, AShooterPlayerController*, UPrimalPlayerData*, AShooterCharacter*, bool);
+
+        void Init();
     }
 }

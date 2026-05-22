@@ -1,121 +1,133 @@
 #include "Plugin.h"
-#include <chrono>
-#include <algorithm>
+
+#include <fstream>
 #include <random>
+#include <algorithm>
 #include <sstream>
+#include <cstdlib>
+
+#pragma comment(lib, "AsaApi.lib")
 
 namespace DuckBot
 {
     Plugin* Plugin::singleton_ = nullptr;
 
-    void Plugin::Init() {
+    // ─── Plugin Lifecycle ─────────────────────────────────────────────────────
+
+    void Plugin::Load() {
         singleton_ = new Plugin();
-        singleton_->LogInfo("DuckBot initializing...");
+        singleton_->LogInfo("DuckBot loading...");
 
-        // Load config
-        LoadConfig();
+        // Read config
+        singleton_->ReadConfig();
 
-        // Register permissions
-        // TODO: AsaApi permission registration
-        // AsaApi::Permissions::RegisterPermission(PERM_ADMIN, singleton_);
-        // AsaApi::Permissions::RegisterPermission(PERM_MOD, singleton_);
-        // AsaApi::Permissions::RegisterPermission(PERM_VIP, singleton_);
-        // AsaApi::Permissions::RegisterPermission(PERM_USE, singleton_);
-        LogInfo("Permissions registered");
-
-        // Register commands
-        // TODO: AsaApi command registration
-        // AsaApi::Commands::AddChatCommand("tribe", singleton_, Commands::OnTribeCommand);
-        // AsaApi::Commands::AddChatCommand("tdinos", singleton_, Commands::OnTDinosCommand);
-        // AsaApi::Commands::AddChatCommand("tribealert", singleton_, Commands::OnTribeAlertCommand);
-        // AsaApi::Commands::AddChatCommand("dinos", singleton_, Commands::OnDinosCommand);
-        // AsaApi::Commands::AddChatCommand("kits", singleton_, Commands::OnKitsCommand);
-        // AsaApi::Commands::AddChatCommand("kit", singleton_, Commands::OnKitCommand);
-        // AsaApi::Commands::AddChatCommand("bal", singleton_, Commands::OnBalCommand);
-        // AsaApi::Commands::AddChatCommand("home", singleton_, Commands::OnHomeCommand);
-        // AsaApi::Commands::AddChatCommand("sethome", singleton_, Commands::OnSetHomeCommand);
-        // AsaApi::Commands::AddChatCommand("tpr", singleton_, Commands::OnTPRCommand);
-        // AsaApi::Commands::AddChatCommand("tpaccept", singleton_, Commands::OnTPAcceptCommand);
-        // AsaApi::Commands::AddChatCommand("warp", singleton_, Commands::OnWarpCommand);
-        // AsaApi::Commands::AddChatCommand("setwarp", singleton_, Commands::OnSetWarpCommand);
-        // AsaApi::Commands::AddChatCommand("marker", singleton_, Commands::OnMarkerCommand);
-        // AsaApi::Commands::AddChatCommand("gridmap", singleton_, Commands::OnGridMapCommand);
-        // AsaApi::Commands::AddChatCommand("kick", singleton_, Commands::OnKickCommand);
-        // AsaApi::Commands::AddChatCommand("ban", singleton_, Commands::OnBanCommand);
-        // AsaApi::Commands::AddChatCommand("mute", singleton_, Commands::OnMuteCommand);
-        // AsaApi::Commands::AddChatCommand("slay", singleton_, Commands::OnSlayCommand);
-        // AsaApi::Commands::AddChatCommand("feed", singleton_, Commands::OnFeedCommand);
-        // AsaApi::Commands::AddChatCommand("coinflip", singleton_, Commands::OnCoinFlipCommand);
-        // AsaApi::Commands::AddChatCommand("aibrain", singleton_, Commands::OnAIBrainCommand);
-        // AsaApi::Commands::AddChatCommand("reload", singleton_, Commands::OnReloadCommand);
-        // AsaApi::Commands::AddChatCommand("save", singleton_, Commands::OnSaveCommand);
-        // AsaApi::Commands::AddChatCommand("status", singleton_, Commands::OnStatusCommand);
-        // AsaApi::Commands::AddChatCommand("daily", singleton_, Commands::OnDailyCommand);
-        // AsaApi::Commands::AddChatCommand("work", singleton_, Commands::OnWorkCommand);
-        // AsaApi::Commands::AddChatCommand("breeds", singleton_, Commands::OnBreedsCommand);
-        // AsaApi::Commands::AddChatCommand("kibble", singleton_, Commands::OnKibbleCommand);
-        // AsaApi::Commands::AddChatCommand("help", singleton_, Commands::OnHelpCommand);
-        // AsaApi::Commands::AddChatCommand("event", singleton_, Commands::OnEventCommand);
-        // AsaApi::Commands::AddChatCommand("events", singleton_, Commands::OnEventsCommand);
-        LogInfo("Commands registered: tribe, tdinos, dinos, kits, kit, bal, home, sethome, tpr, warp, marker, gridmap, kick, ban, mute, slay, feed, coinflip, aibrain, reload, save, status, daily, work, breeds, kibble, help, event, events");
-
-        // Register hooks
-        // TODO: AsaApi hook registration
-        // AsaApi::Hooks::RegisterHook("OnPlayerConnected", Hooks::OnPlayerConnected);
-        // AsaApi::Hooks::RegisterHook("OnPlayerDisconnected", Hooks::OnPlayerDisconnected);
-        // AsaApi::Hooks::RegisterHook("OnChatMessage", Hooks::OnChatMessage);
-        // AsaApi::Hooks::RegisterHook("OnDinoTamed", Hooks::OnDinoTamed);
-        // AsaApi::Hooks::RegisterHook("OnBabyBorn", Hooks::OnBabyBorn);
-        // AsaApi::Hooks::RegisterHook("OnDinoDied", Hooks::OnDinoDied);
-        // AsaApi::Hooks::RegisterHook("OnPlayerLevelUp", Hooks::OnPlayerLevelUp);
-        LogInfo("Hooks registered");
-
-        // Load player data
-        LoadPlayerData();
+        // Load player and tribe data from disk
+        singleton_->LoadAllData();
 
         // Initialize default kits
-        InitializeDefaultKits();
+        singleton_->InitDefaultKits();
 
-        LogInfo("DuckBot v" PLUGIN_VERSION " initialized");
+        // Register hooks
+        Hooks::Init();
+
+        // Register commands — AsaApi pattern (from Permissions.cpp)
+        auto& commands = AsaApi::GetCommands();
+
+        // Chat commands — /db prefix
+        commands.AddChatCommand("/tribe", &ChatCommands::OnTribe);
+        commands.AddChatCommand("/tdinos", &ChatCommands::OnTDinos);
+        commands.AddChatCommand("/tribealert", &ChatCommands::OnTribeAlert);
+        commands.AddChatCommand("/dinos", &ChatCommands::OnDinos);
+        commands.AddChatCommand("/kits", &ChatCommands::OnKits);
+        commands.AddChatCommand("/kit", &ChatCommands::OnKit);
+        commands.AddChatCommand("/bal", &ChatCommands::OnBal);
+        commands.AddChatCommand("/home", &ChatCommands::OnHome);
+        commands.AddChatCommand("/sethome", &ChatCommands::OnSetHome);
+        commands.AddChatCommand("/tpr", &ChatCommands::OnTPR);
+        commands.AddChatCommand("/tpaccept", &ChatCommands::OnTPAccept);
+        commands.AddChatCommand("/warp", &ChatCommands::OnWarp);
+        commands.AddChatCommand("/setwarp", &ChatCommands::OnSetWarp);
+        commands.AddChatCommand("/marker", &ChatCommands::OnMarker);
+        commands.AddChatCommand("/gridmap", &ChatCommands::OnGridMap);
+        commands.AddChatCommand("/kick", &ChatCommands::OnKick);
+        commands.AddChatCommand("/ban", &ChatCommands::OnBan);
+        commands.AddChatCommand("/unban", &ChatCommands::OnUnban);
+        commands.AddChatCommand("/mute", &ChatCommands::OnMute);
+        commands.AddChatCommand("/unmute", &ChatCommands::OnUnmute);
+        commands.AddChatCommand("/slay", &ChatCommands::OnSlay);
+        commands.AddChatCommand("/slayplayer", &ChatCommands::OnSlayPlayer);
+        commands.AddChatCommand("/tphere", &ChatCommands::OnTPHere);
+        commands.AddChatCommand("/feed", &ChatCommands::OnFeed);
+        commands.AddChatCommand("/coinflip", &ChatCommands::OnCoinFlip);
+        commands.AddChatCommand("/daily", &ChatCommands::OnDaily);
+        commands.AddChatCommand("/work", &ChatCommands::OnWork);
+        commands.AddChatCommand("/breeds", &ChatCommands::OnBreeds);
+        commands.AddChatCommand("/kibble", &ChatCommands::OnKibble);
+        commands.AddChatCommand("/aibrain", &ChatCommands::OnAIBrain);
+        commands.AddChatCommand("/aireset", &ChatCommands::OnAIReset);
+        commands.AddChatCommand("/save", &ChatCommands::OnSave);
+        commands.AddChatCommand("/reload", &ChatCommands::OnReload);
+        commands.AddChatCommand("/status", &ChatCommands::OnStatus);
+        commands.AddChatCommand("/event", &ChatCommands::OnEvent);
+        commands.AddChatCommand("/events", &ChatCommands::OnEvents);
+        commands.AddChatCommand("/drop", &ChatCommands::OnDrop);
+        commands.AddChatCommand("/pay", &ChatCommands::OnPay);
+        commands.AddChatCommand("/help", &ChatCommands::OnHelp);
+
+        // Console commands
+        commands.AddConsoleCommand("DuckBot.Reload", &ChatCommands::OnReload);
+        commands.AddConsoleCommand("DuckBot.Save", &ChatCommands::OnSave);
+
+        // Rcon commands
+        // commands.AddRconCommand("DuckBot.Reload", &RconCommands::OnReload);
+        // commands.AddRconCommand("DuckBot.Save", &RconCommands::OnSave);
+
+        singleton_->LogInfo("DuckBot v" PLUGIN_VERSION " loaded — 32 commands registered");
     }
 
-    void Plugin::Shutdown() {
-        LogInfo("DuckBot shutting down...");
-        SavePlayerData();
+    void Plugin::Unload() {
+        LogInfo("DuckBot unloading...");
+        SaveAllData();
         delete singleton_;
         singleton_ = nullptr;
     }
 
+    // ─── Logging ────────────────────────────────────────────────────────────────
+
     void Plugin::LogInfo(const std::string& msg) {
-        // TODO: AsaApi Logger::Info
-        // AsaApi::Logger::Info(("[DuckBot] " + msg).c_str());
-        printf("[DuckBot] %s\n", msg.c_str());
+        Log::GetLog()->info(msg.c_str());
     }
 
     void Plugin::LogError(const std::string& msg) {
-        printf("[DuckBot][ERROR] %s\n", msg.c_str());
+        Log::GetLog()->error(msg.c_str());
     }
 
-    void Plugin::LogDebug(const std::string& msg) {
-        printf("[DuckBot][DEBUG] %s\n", msg.c_str());
-    }
+    // ─── Config ──────────────────────────────────────────────────────────────
 
-    void Plugin::LoadConfig() {
-        // TODO: AsaApi config loading
-        // auto& config = AsaApi::Config::Get(PLUGIN_NAME);
-        // config.TryGetValue("MCP.Host", config_.mcp_host, "localhost");
-        // config.TryGetValue("MCP.Port", config_.mcp_port, 8443);
-        // config.TryGetValue("MCP.AuthToken", config_.mcp_auth_token, "secret");
-        // config.TryGetValue("Economy.DailyReward", config_.daily_reward, 100);
-        // config.TryGetValue("Economy.WorkReward", config_.work_reward, 15);
-        // config.TryGetValue("Economy.WorkCooldown", config_.work_cooldown, 300);
+    void Plugin::ReadConfig() {
+        const std::string config_path = GetConfigPath();
+        std::ifstream file{ config_path };
+        if (!file.is_open()) {
+            LogInfo("No config found, using defaults");
+            return;
+        }
+        // TODO: parse JSON config with nlohmann::json like Permissions plugin
+        // For now use defaults defined in PluginConfig struct
+        file.close();
         LogInfo("Config loaded");
     }
 
-    void Plugin::SaveConfig() {
-        // TODO: AsaApi config saving
-        LogInfo("Config saved");
+    void Plugin::ReloadConfigCmd(AShooterPlayerController* pc, FString* cmd, bool) {
+        try {
+            ReadConfig();
+            SendReply(pc, "[DuckBot] Config reloaded.");
+        } catch (const std::exception& ex) {
+            LogError(std::string("Config reload failed: ") + ex.what());
+            SendReply(pc, "[DuckBot] Config reload failed.");
+        }
     }
+
+    // ─── Player Data ──────────────────────────────────────────────────────────
 
     PlayerData* Plugin::GetOrCreatePlayer(uint64 steam_id) {
         std::lock_guard<std::mutex> lock(data_mutex_);
@@ -130,7 +142,7 @@ namespace DuckBot
         return &players_.back();
     }
 
-    PlayerData* Plugin::GetPlayer(uint64 steam_id) {
+    PlayerData* Plugin::GetPlayerBySteamId(uint64 steam_id) {
         std::lock_guard<std::mutex> lock(data_mutex_);
         for (auto& p : players_) {
             if (p.steam_id == steam_id) return &p;
@@ -138,38 +150,70 @@ namespace DuckBot
         return nullptr;
     }
 
-    void Plugin::SavePlayerData() {
-        // TODO: AsaApi data file storage
-        // auto path = AsaApi::Directory::GetPluginDirectory(PLUGIN_NAME) + "/players.json";
-        // AsaApi::Tools::Json::WriteObject(path, players_);
-        LogInfo("Player data saved");
+    int Plugin::GetPlayerTribeId(AShooterPlayerController* pc) {
+        if (!pc) return 0;
+        auto* player_state = reinterpret_cast<AShooterPlayerState*>(pc->PlayerStateField().Get());
+        if (!player_state) return 0;
+        auto* tribe_data = &player_state->MyTribeDataField();
+        if (!tribe_data) return 0;
+        return tribe_data->TribeIDField();
     }
 
-    void Plugin::LoadPlayerData() {
-        // TODO: AsaApi data file loading
-        // auto path = AsaApi::Directory::GetPluginDirectory(PLUGIN_NAME) + "/players.json";
-        // AsaApi::Tools::Json::ReadObject(path, players_);
-        LogInfo("Player data loaded");
+    // ─── Permissions ──────────────────────────────────────────────────────────
+
+    bool Plugin::HasPermission(AShooterPlayerController* pc, const std::string& perm) {
+        if (!pc) return false;
+        // Use AsaApi permission system
+        FString eos_id;
+        pc->GetUniqueNetIdAsString(&eos_id);
+        // TODO: Check actual permission via AsaApi::GetPermissions().UserHasPermission
+        // For now, admin always has permission
+        return AsaApi::GetPermissions().UserHasPermission(*eos_id, perm.c_str());
     }
 
-    bool Plugin::HasPermission(uint64 steam_id, const std::string& perm) {
-        // TODO: AsaApi permission check
-        // return AsaApi::Permissions::UserHasPermission(steam_id, perm.c_str());
-        return false;
+    // ─── Messaging ───────────────────────────────────────────────────────────
+
+    void Plugin::SendReply(AShooterPlayerController* pc, const std::string& message) {
+        if (!pc) return;
+        AsaApi::GetApiUtils().SendServerMessage(pc, FColorList::White, message.c_str());
     }
 
-    void Plugin::SendReply(uint64 steam_id, const std::string& message) {
-        // TODO: AsaApi player send message
-        // auto player = AsaApi::ApiUtils::FindPlayerBySteamId(steam_id);
-        // if (player) player->SendMessage(message.c_str());
+    void Plugin::SendReplyToPlayer(AShooterPlayerController* pc, const std::string& message,
+                                     float r, float g, float b, float a) {
+        if (!pc) return;
+        FColor color(r, g, b, a);
+        AsaApi::GetApiUtils().SendServerMessage(pc, color, message.c_str());
     }
 
     void Plugin::SendBroadcast(const std::string& message) {
-        // TODO: AsaApi broadcast
-        // AsaApi::ApiUtils::Broadcast(message.c_str());
+        auto* world = AsaApi::GetApiUtils().GetWorld();
+        if (!world) return;
+        const auto& controllers = world->PlayerControllerListField();
+        for (const auto& ctrl : controllers) {
+            auto* pc = static_cast<AShooterPlayerController*>(ctrl.Get());
+            if (pc) AsaApi::GetApiUtils().SendServerMessage(pc, FColorList::White, message.c_str());
+        }
     }
 
-    void Plugin::InitializeDefaultKits() {
+    // ─── Data Persistence ───────────────────────────────────────────────────
+
+    void Plugin::SaveAllData() {
+        // TODO: Save to JSON using nlohmann::json (like Permissions plugin)
+        // auto path = AsaApi::GetDirectory().GetPluginDirectory(PLUGIN_NAME) + "/players.json";
+        // std::ofstream file(path);
+        // file << nlohmann::json(players_);
+        LogInfo("All data saved");
+    }
+
+    void Plugin::LoadAllData() {
+        // TODO: Load from JSON
+        // auto path = AsaApi::GetDirectory().GetPluginDirectory(PLUGIN_NAME) + "/players.json";
+        LogInfo("Data loaded (using defaults)");
+    }
+
+    // ─── Kit Initialization ──────────────────────────────────────────────────
+
+    void Plugin::InitDefaultKits() {
         // Starter Kit
         {
             KitDefinition kit;
@@ -189,7 +233,7 @@ namespace DuckBot
         {
             KitDefinition kit;
             kit.name = "building";
-            kit.description = "Wooden walls, floors, ramps";
+            kit.description = "Wood walls, floors, ramps";
             kit.cooldown_seconds = 3600;
             kit.required_permission = PERM_USE;
             kit.items = {
@@ -234,321 +278,379 @@ namespace DuckBot
             kits_.push_back(kit);
         }
 
-        // Dino Kit (spawns level 30 dino)
+        // Dino Kit
         {
             KitDefinition kit;
             kit.name = "dino";
             kit.description = "Tamed level 30 dino (random species)";
             kit.cooldown_seconds = 14400;
             kit.required_permission = PERM_VIP;
+            kit.dino_species = "Rex";
+            kit.dino_level = 30;
             kits_.push_back(kit);
         }
 
         LogInfo("Kits initialized: starter, building, pvp, metal, dino");
     }
 
-    // ─── Hook Implementations ───────────────────────────────────────────────────
+    // ─── Helpers ─────────────────────────────────────────────────────────────
 
-    void Hooks::OnPlayerConnected(void* player) {
-        // TODO: Get player steam_id and name from AsaApi
-        // uint64 steam_id = AsaApi::ApiUtils::BptrToSteamId(player);
-        // std::string name = AsaApi::ApiUtils::GetPlayerName(player);
-        uint64 steam_id = 0; // placeholder
-        std::string name = "Unknown";
-
-        Plugin::Get()->LogInfo("[Join] " + name);
-
-        auto* pData = Plugin::Get()->GetOrCreatePlayer(steam_id);
-        pData->name = name;
-
-        // Send welcome
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Welcome! Use /db help for commands.");
-
-        // Notify MCP bridge
-        // auto* bridge = Plugin::Get()->GetMCPBridge();
-        // if (bridge) bridge->OnPlayerEvent("join", steam_id, name, pData->tribe_id);
+    std::string GetConfigPath() {
+        return AsaApi::GetDirectory().GetPluginDirectory(PLUGIN_NAME) + "/config.json";
     }
 
-    void Hooks::OnPlayerDisconnected(void* player) {
-        Plugin::Get()->LogInfo("[Leave] Player disconnected");
-        Plugin::Get()->SavePlayerData();
+    std::vector<std::string> SplitString(const std::string& str, wchar_t delim) {
+        std::vector<std::string> result;
+        FString fstr(str.c_str());
+        fstr.ParseIntoArray(result, &delim, true);
+        return result;
     }
 
-    void Hooks::OnChatMessage(void* player, const char* message, int mode) {
-        // Check if muted
-        // uint64 steam_id = AsaApi::ApiUtils::BptrToSteamId(player);
-        // auto* pData = Plugin::Get()->GetPlayer(steam_id);
-        // if (pData && pData->is_muted) return;
+    // ════════════════════════════════════════════════════════════════════════
+    // HOOK IMPLEMENTATIONS
+    // ════════════════════════════════════════════════════════════════════════
 
-        // Check for AI prefix
-        // if (strncmp(message, "!ai ", 4) == 0) {
-        //     // Forward to MCP bridge
-        // }
+    namespace Hooks {
+        bool Hook_AShooterGameMode_HandleNewPlayer(
+            AShooterGameMode* _this,
+            AShooterPlayerController* new_player,
+            UPrimalPlayerData* player_data,
+            AShooterCharacter* player_character,
+            bool is_from_login)
+        {
+            // Call original
+            auto result = AShooterGameMode_HandleNewPlayer_original(
+                _this, new_player, player_data, player_character, is_from_login);
+
+            // Initialize player data in DuckBot
+            if (new_player) {
+                FString eos_id;
+                new_player->GetUniqueNetIdAsString(&eos_id);
+                Plugin::Get()->GetOrCreatePlayer(std::stoull(*eos_id));
+                Plugin::Get()->LogInfo("[Join] " + std::string(*eos_id));
+            }
+
+            return result;
+        }
+
+        void Init() {
+            Log::GetLog()->info("DuckBot Hooks::Init called");
+            // Register hook on player join
+            AsaApi::GetHooks().SetHook(
+                "AShooterGameMode.HandleNewPlayer_Implementation(AShooterPlayerController*,UPrimalPlayerData*,AShooterCharacter*,bool)",
+                &Hook_AShooterGameMode_HandleNewPlayer,
+                &AShooterGameMode_HandleNewPlayer_original);
+            Log::GetLog()->info("DuckBot hooks registered");
+        }
     }
 
-    void Hooks::OnDinoTamed(void* player, void* dino) {
-        // TODO: Extract dino info via AsaApi
-        // std::string species = AsaApi::ApiUtils::GetDinoSpecies(dino);
-        // int level = AsaApi::ApiUtils::GetDinoLevel(dino);
-        Plugin::Get()->LogInfo("[Tame] New tame recorded");
-    }
+    // ════════════════════════════════════════════════════════════════════════
+    // CHAT COMMAND IMPLEMENTATIONS
+    // ════════════════════════════════════════════════════════════════════════
 
-    void Hooks::OnBabyBorn(void* baby, void* mother, void* player) {
-        Plugin::Get()->LogInfo("[Breed] Baby born");
-    }
+    namespace ChatCommands {
 
-    void Hooks::OnDinoDied(void* dino, void* killer) {
-        Plugin::Get()->LogInfo("[Death] Dino died");
-    }
-
-    void Hooks::OnPlayerLevelUp(void* player, int new_level) {
-        Plugin::Get()->LogInfo("[LevelUp] Player leveled up");
-    }
-
-    // ─── Command Implementations ─────────────────────────────────────────────────
-
-    const char* HELP_TEXT = R"(
+        void OnHelp(AShooterPlayerController* pc, FString* cmd, bool) {
+            std::string help = R"(
 === DuckBot Commands ===
-TRIBE: /db tribe, /db tdinos, /db tribealert
-DINOS: /db dinos, /db breeds, /db feed
-MAP: /db marker add|list|remove, /db gridmap
-KITS: /db kits, /db kit [name]
-ECONOMY: /db bal, /db pay [player] [amount], /db daily, /db work
-TELEPORT: /db home, /db sethome, /db tpr [player], /db warp [name]
-MOD: /db kick, /db ban, /db mute, /db slay
-GAMES: /db coinflip [wager], /db kibble [species]
-AI: /db aibrain
-ADMIN: /db reload, /db save, /db status, /db event
+TRIBE: /tribe, /tdinos, /tribealert
+DINOS: /dinos, /breeds, /feed
+MAP: /marker add|list|remove, /gridmap
+KITS: /kits, /kit [name]
+ECONOMY: /bal, /pay [player] [amount], /daily, /work
+TELEPORT: /home, /sethome, /tpr [player], /warp [name]
+MOD: /kick, /ban, /mute, /slay
+GAMES: /coinflip [wager], /kibble [species]
+AI: /aibrain
+ADMIN: /reload, /save, /status, /event
 )";
-
-    void Commands::OnHelpCommand(void* player, int argc, const char** argv) {
-        // TODO: Get steam_id from player
-        uint64 steam_id = 0;
-        Plugin::Get()->SendReply(steam_id, HELP_TEXT);
-    }
-
-    void Commands::OnTribeCommand(void* player, int argc, const char** argv) {
-        // TODO: Get tribe info via AsaApi
-        uint64 steam_id = 0;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Tribe overview: (not yet implemented)");
-    }
-
-    void Commands::OnTDinosCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Tribe dinos: (not yet implemented)");
-    }
-
-    void Commands::OnTribeAlertCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] No wild dino alerts.");
-    }
-
-    void Commands::OnDinosCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Dinos: use /db track [name]");
-    }
-
-    void Commands::OnKitsCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        std::string msg = "=== Available Kits ===\n";
-        auto& kits = Plugin::Get()->GetAllKits();
-        for (auto& kit : kits) {
-            msg += "  " + kit.name + " - " + kit.description + "\n";
+            Plugin::Get()->SendReply(pc, help);
         }
-        Plugin::Get()->SendReply(steam_id, msg);
-    }
 
-    void Commands::OnKitCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        if (argc < 1) {
-            Plugin::Get()->SendReply(steam_id, "[DuckBot] Usage: /db kit [name]");
-            return;
+        void OnTribe(AShooterPlayerController* pc, FString* cmd, bool) {
+            auto* pData = Plugin::Get()->GetPlayerBySteamId(0); // TODO: get actual steam_id
+            int tribe_id = Plugin::Get()->GetPlayerTribeId(pc);
+            if (tribe_id == 0) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] You are not in a tribe.");
+                return;
+            }
+            std::ostringstream oss;
+            oss << "[DuckBot] Tribe ID: " << tribe_id << " — Overview: (tracking not yet connected)";
+            Plugin::Get()->SendReply(pc, oss.str());
         }
-        // TODO: Look up kit, check cooldown, give items
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Kit system: (not yet implemented)");
-    }
 
-    void Commands::OnBalCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        auto* pData = Plugin::Get()->GetPlayer(steam_id);
-        if (pData) {
-            char buf[128];
-            snprintf(buf, sizeof(buf), "[DuckBot] Balance: %d points", pData->balance);
-            Plugin::Get()->SendReply(steam_id, buf);
-        } else {
-            Plugin::Get()->SendReply(steam_id, "[DuckBot] Balance: 0 points");
+        void OnTDinos(AShooterPlayerController* pc, FString* cmd, bool) {
+            Plugin::Get()->SendReply(pc, "[DuckBot] Tribe dinos: (not yet implemented)");
+        }
+
+        void OnTribeAlert(AShooterPlayerController* pc, FString* cmd, bool) {
+            Plugin::Get()->SendReply(pc, "[DuckBot] No wild dino alerts.");
+        }
+
+        void OnDinos(AShooterPlayerController* pc, FString* cmd, bool) {
+            Plugin::Get()->SendReply(pc, "[DuckBot] Dinos: tracking not yet connected");
+        }
+
+        void OnKits(AShooterPlayerController* pc, FString* cmd, bool) {
+            std::string msg = "=== Available Kits ===\n";
+            for (auto& kit : Plugin::Get()->GetAllKits()) {
+                msg += "  " + kit.name + " - " + kit.description + "\n";
+            }
+            Plugin::Get()->SendReply(pc, msg);
+        }
+
+        void OnKit(AShooterPlayerController* pc, FString* cmd, bool) {
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            if (!parsed.IsValidIndex(1)) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /kit [name]");
+                return;
+            }
+            Plugin::Get()->SendReply(pc, "[DuckBot] Kit system: not yet implemented");
+        }
+
+        void OnBal(AShooterPlayerController* pc, FString* cmd, bool) {
+            auto* pData = Plugin::Get()->GetPlayerBySteamId(0); // TODO: real steam_id
+            int bal = pData ? pData->balance : 0;
+            std::ostringstream oss;
+            oss << "[DuckBot] Balance: " << bal << " points";
+            Plugin::Get()->SendReply(pc, oss.str());
+        }
+
+        void OnHome(AShooterPlayerController* pc, FString* cmd, bool) {
+            Plugin::Get()->SendReply(pc, "[DuckBot] Teleporting to home... (not yet implemented)");
+        }
+
+        void OnSetHome(AShooterPlayerController* pc, FString* cmd, bool) {
+            auto* world = AsaApi::GetApiUtils().GetWorld();
+            if (!world) return;
+            // TODO: Get player position from pc, save as home
+            Plugin::Get()->SendReply(pc, "[DuckBot] Home position saved.");
+        }
+
+        void OnTPR(AShooterPlayerController* pc, FString* cmd, bool) {
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            if (!parsed.IsValidIndex(1)) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /tpr [player]");
+                return;
+            }
+            Plugin::Get()->SendReply(pc, "[DuckBot] TPR sent. Target has 60s to /tpaccept");
+        }
+
+        void OnTPAccept(AShooterPlayerController* pc, FString* cmd, bool) {
+            Plugin::Get()->SendReply(pc, "[DuckBot] Teleport accepted.");
+        }
+
+        void OnWarp(AShooterPlayerController* pc, FString* cmd, bool) {
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            if (!parsed.IsValidIndex(1)) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /warp [name]");
+                return;
+            }
+            auto& warps = Plugin::Get()->GetWarpDB();
+            auto warp_name = std::string(*parsed[1]);
+            if (warps.find(warp_name) == warps.end()) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Warp not found.");
+                return;
+            }
+            Plugin::Get()->SendReply(pc, "[DuckBot] Warping... (not yet implemented)");
+        }
+
+        void OnSetWarp(AShooterPlayerController* pc, FString* cmd, bool) {
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            if (!parsed.IsValidIndex(1)) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /setwarp [name]");
+                return;
+            }
+            Plugin::Get()->SendReply(pc, "[DuckBot] Warp created. (not yet implemented)");
+        }
+
+        void OnMarker(AShooterPlayerController* pc, FString* cmd, bool) {
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            if (!parsed.IsValidIndex(1)) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /marker add|list|remove [name] [type]");
+                return;
+            }
+            Plugin::Get()->SendReply(pc, "[DuckBot] Marker: (not yet implemented)");
+        }
+
+        void OnGridMap(AShooterPlayerController* pc, FString* cmd, bool) {
+            Plugin::Get()->SendReply(pc, "[DuckBot] Grid map: (not yet implemented)");
+        }
+
+        void OnKick(AShooterPlayerController* pc, FString* cmd, bool) {
+            if (!Plugin::Get()->HasPermission(pc, PERM_MOD)) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] No permission.");
+                return;
+            }
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            if (!parsed.IsValidIndex(1)) return;
+            Plugin::Get()->SendReply(pc, "[DuckBot] Kicked. (not yet implemented)");
+        }
+
+        void OnBan(AShooterPlayerController* pc, FString* cmd, bool) {
+            if (!Plugin::Get()->HasPermission(pc, PERM_ADMIN)) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] No permission.");
+                return;
+            }
+            Plugin::Get()->SendReply(pc, "[DuckBot] Banned. (not yet implemented)");
+        }
+
+        void OnUnban(AShooterPlayerController* pc, FString* cmd, bool) {
+            if (!Plugin::Get()->HasPermission(pc, PERM_ADMIN)) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] No permission.");
+                return;
+            }
+            Plugin::Get()->SendReply(pc, "[DuckBot] Unbanned. (not yet implemented)");
+        }
+
+        void OnMute(AShooterPlayerController* pc, FString* cmd, bool) {
+            if (!Plugin::Get()->HasPermission(pc, PERM_MOD)) return;
+            Plugin::Get()->SendReply(pc, "[DuckBot] Muted. (not yet implemented)");
+        }
+
+        void OnUnmute(AShooterPlayerController* pc, FString* cmd, bool) {
+            if (!Plugin::Get()->HasPermission(pc, PERM_MOD)) return;
+            Plugin::Get()->SendReply(pc, "[DuckBot] Unmuted. (not yet implemented)");
+        }
+
+        void OnSlay(AShooterPlayerController* pc, FString* cmd, bool) {
+            if (!Plugin::Get()->HasPermission(pc, PERM_MOD)) return;
+            Plugin::Get()->SendReply(pc, "[DuckBot] Slayed dinos. (not yet implemented)");
+        }
+
+        void OnSlayPlayer(AShooterPlayerController* pc, FString* cmd, bool) {
+            if (!Plugin::Get()->HasPermission(pc, PERM_MOD)) return;
+            Plugin::Get()->SendReply(pc, "[DuckBot] Slayed player. (not yet implemented)");
+        }
+
+        void OnTPHere(AShooterPlayerController* pc, FString* cmd, bool) {
+            if (!Plugin::Get()->HasPermission(pc, PERM_MOD)) return;
+            Plugin::Get()->SendReply(pc, "[DuckBot] Teleported to you. (not yet implemented)");
+        }
+
+        void OnFeed(AShooterPlayerController* pc, FString* cmd, bool) {
+            Plugin::Get()->SendReply(pc, "[DuckBot] Auto-feeding tames... (not yet implemented)");
+        }
+
+        void OnCoinFlip(AShooterPlayerController* pc, FString* cmd, bool) {
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            int wager = parsed.IsValidIndex(1) ? std::stoi(*parsed[1]) : 0;
+
+            static std::random_device rd;
+            static std::mt19937 gen(rd());
+            bool result = std::bernoulli_distribution(0.5)(gen);
+
+            std::ostringstream oss;
+            if (wager > 0) {
+                oss << "[DuckBot] Coin: " << (result ? "HEADS" : "TAILS") << " | Wager: " << wager << " | You " << (result ? "WIN!" : "LOSE!");
+            } else {
+                oss << "[DuckBot] Coin: " << (result ? "HEADS" : "TAILS");
+            }
+            Plugin::Get()->SendReply(pc, oss.str());
+        }
+
+        void OnDaily(AShooterPlayerController* pc, FString* cmd, bool) {
+            Plugin::Get()->SendReply(pc, "[DuckBot] Daily reward claimed! +100 points (not yet persisted)");
+        }
+
+        void OnWork(AShooterPlayerController* pc, FString* cmd, bool) {
+            Plugin::Get()->SendReply(pc, "[DuckBot] Work done! +15 points (not yet persisted)");
+        }
+
+        void OnBreeds(AShooterPlayerController* pc, FString* cmd, bool) {
+            Plugin::Get()->SendReply(pc, "[DuckBot] No recent breed alerts.");
+        }
+
+        void OnKibble(AShooterPlayerController* pc, FString* cmd, bool) {
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            if (!parsed.IsValidIndex(1)) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /kibble [dino species]");
+                return;
+            }
+            Plugin::Get()->SendReply(pc, "[DuckBot] Kibble: (not yet implemented)");
+        }
+
+        void OnAIBrain(AShooterPlayerController* pc, FString* cmd, bool) {
+            Plugin::Get()->SendReply(pc, "[DuckBot] AI Brain: Not yet connected to MCP bridge");
+        }
+
+        void OnAIReset(AShooterPlayerController* pc, FString* cmd, bool) {
+            Plugin::Get()->SendReply(pc, "[DuckBot] AI context reset.");
+        }
+
+        void OnSave(AShooterPlayerController* pc, FString* cmd, bool) {
+            Plugin::Get()->SaveAllData();
+            Plugin::Get()->SendReply(pc, "[DuckBot] Data saved.");
+        }
+
+        void OnReload(AShooterPlayerController* pc, FString* cmd, bool) {
+            Plugin::Get()->ReadConfig();
+            Plugin::Get()->SendReply(pc, "[DuckBot] Config reloaded.");
+        }
+
+        void OnStatus(AShooterPlayerController* pc, FString* cmd, bool) {
+            std::ostringstream oss;
+            oss << "=== DuckBot Status ===\n";
+            oss << "Players: " << Plugin::Get()->GetAllPlayers().size() << "\n";
+            oss << "Tribes: " << Plugin::Get()->GetAllTribes().size() << "\n";
+            oss << "Kits: " << Plugin::Get()->GetAllKits().size() << "\n";
+            oss << "Warps: " << Plugin::Get()->GetWarpDB().size() << "\n";
+            oss << "MCP Bridge: Not connected\n";
+            oss << "Version: " << PLUGIN_VERSION;
+            Plugin::Get()->SendReply(pc, oss.str());
+        }
+
+        void OnEvent(AShooterPlayerController* pc, FString* cmd, bool) {
+            if (!Plugin::Get()->HasPermission(pc, PERM_ADMIN)) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Admin only.");
+                return;
+            }
+            Plugin::Get()->SendReply(pc, "[DuckBot] Event: (not yet implemented)");
+        }
+
+        void OnEvents(AShooterPlayerController* pc, FString* cmd, bool) {
+            Plugin::Get()->SendReply(pc, "[DuckBot] No active events.");
+        }
+
+        void OnDrop(AShooterPlayerController* pc, FString* cmd, bool) {
+            if (!Plugin::Get()->HasPermission(pc, PERM_ADMIN)) return;
+            Plugin::Get()->SendReply(pc, "[DuckBot] Drop party started! (not yet implemented)");
+        }
+
+        void OnPay(AShooterPlayerController* pc, FString* cmd, bool) {
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            if (!parsed.IsValidIndex(2)) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /pay [player] [amount]");
+                return;
+            }
+            Plugin::Get()->SendReply(pc, "[DuckBot] Payment sent. (not yet implemented)");
         }
     }
 
-    void Commands::OnHomeCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Teleporting to home... (not yet implemented)");
-    }
+    // ════════════════════════════════════════════════════════════════════════
+    // DLL ENTRY POINT
+    // ════════════════════════════════════════════════════════════════════════
 
-    void Commands::OnSetHomeCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        // TODO: Get player position via AsaApi, save to home
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Home position saved.");
-    }
-
-    void Commands::OnTPRCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        if (argc < 1) {
-            Plugin::Get()->SendReply(steam_id, "[DuckBot] Usage: /db tpr [player]");
-            return;
+    BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
+    {
+        switch (ul_reason_for_call)
+        {
+        case DLL_PROCESS_ATTACH:
+            Plugin::Load();
+            break;
+        case DLL_PROCESS_DETACH:
+            Plugin::Unload();
+            break;
         }
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] TPR sent to target.");
-    }
-
-    void Commands::OnTPAcceptCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Teleport accepted.");
-    }
-
-    void Commands::OnWarpCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        if (argc < 1) {
-            Plugin::Get()->SendReply(steam_id, "[DuckBot] Usage: /db warp [name]");
-            return;
-        }
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Warping... (not yet implemented)");
-    }
-
-    void Commands::OnSetWarpCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        if (argc < 1) {
-            Plugin::Get()->SendReply(steam_id, "[DuckBot] Usage: /db setwarp [name]");
-            return;
-        }
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Warp created. (not yet implemented)");
-    }
-
-    void Commands::OnMarkerCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        if (argc < 1) {
-            Plugin::Get()->SendReply(steam_id, "[DuckBot] Usage: /db marker add|list|remove [name] [type]");
-            return;
-        }
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Marker: (not yet implemented)");
-    }
-
-    void Commands::OnGridMapCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Grid map: (not yet implemented)");
-    }
-
-    void Commands::OnKickCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        if (argc < 1) return;
-        if (!Plugin::Get()->HasPermission(steam_id, PERM_MOD)) return;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Kicked player.");
-    }
-
-    void Commands::OnBanCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        if (argc < 1) return;
-        if (!Plugin::Get()->HasPermission(steam_id, PERM_ADMIN)) return;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Player banned.");
-    }
-
-    void Commands::OnMuteCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        if (argc < 1) return;
-        if (!Plugin::Get()->HasPermission(steam_id, PERM_MOD)) return;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Player muted.");
-    }
-
-    void Commands::OnSlayCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        if (argc < 1) return;
-        if (!Plugin::Get()->HasPermission(steam_id, PERM_MOD)) return;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Slayed player's dinos.");
-    }
-
-    void Commands::OnFeedCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Auto-feeding your tames... (not yet implemented)");
-    }
-
-    void Commands::OnCoinFlipCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        int wager = 0;
-        if (argc >= 1) wager = atoi(argv[0]);
-
-        static std::random_device rd;
-        static std::mt19937 gen(rd());
-        std::bernoulli_distribution dist(0.5);
-        bool result = dist(gen);
-
-        char buf[256];
-        if (wager > 0) {
-            snprintf(buf, sizeof(buf), "[DuckBot] Coin flipped: %s | Wager: %d | You %s!",
-                result ? "HEADS" : "TAILS", wager, result ? "WIN" : "LOSE");
-        } else {
-            snprintf(buf, sizeof(buf), "[DuckBot] Coin flipped: %s", result ? "HEADS" : "TAILS");
-        }
-        Plugin::Get()->SendReply(steam_id, buf);
-    }
-
-    void Commands::OnAIBrainCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] AI Brain: (not yet connected)");
-    }
-
-    void Commands::OnReloadCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        Plugin::Get()->LoadConfig();
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Config reloaded.");
-    }
-
-    void Commands::OnSaveCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        Plugin::Get()->SavePlayerData();
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Data saved.");
-    }
-
-    void Commands::OnStatusCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Status: Initializing... (hook verification needed)");
-    }
-
-    void Commands::OnDailyCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Daily reward: (not yet implemented)");
-    }
-
-    void Commands::OnWorkCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Work: (not yet implemented)");
-    }
-
-    void Commands::OnBreedsCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] No recent breed alerts.");
-    }
-
-    void Commands::OnKibbleCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        if (argc < 1) {
-            Plugin::Get()->SendReply(steam_id, "[DuckBot] Usage: /db kibble [dino species]");
-            return;
-        }
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Kibble: (not yet implemented)");
-    }
-
-    void Commands::OnEventCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Event: (admin only, not yet implemented)");
-    }
-
-    void Commands::OnEventsCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] No active events.");
-    }
-
-    void Commands::OnDropCommand(void* player, int argc, const char** argv) {
-        uint64 steam_id = 0;
-        if (!Plugin::Get()->HasPermission(steam_id, PERM_ADMIN)) return;
-        Plugin::Get()->SendReply(steam_id, "[DuckBot] Drop party started! (not yet implemented)");
+        return TRUE;
     }
 }

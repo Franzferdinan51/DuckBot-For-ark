@@ -1,27 +1,68 @@
-# DuckBot AI for ARK
+# DuckBot AI Plugin for ARK
 
-**ARK Survival Ascended tribe management and AI bot — fork of [sheldon-ai-for-ark](https://github.com/Franzferdinan51/sheldon-ai-for-ark).**
+**ServerAPI C++ plugin for ARK Survival Ascended — fork of [sheldon-ai-for-ark](https://github.com/Franzferdinan51/sheldon-ai-for-ark).**
 
-This is a ServerAPI C++ plugin that adds full command-driven tribe management, economy, and AI agent integration to ARK, running alongside the existing sheldon-ai-for-ark Blueprint mod.
+This is a ServerAPI (AsaApi) C++ plugin that adds full command-driven tribe management, economy, and AI agent integration to ARK, running alongside the existing sheldon-ai-for-ark Blueprint mod.
 
 ---
 
-## What This Adds
+## Framework
 
-This plugin layer sits **below** the sheldon-ai-for-ark Blueprint mod. It provides:
+- **ServerAPI / AsaApi** — The C++ mod loader for ARK Survival Ascended
+- **NOT** Oxide — Oxide does NOT support ASA
+- Plugin class: `AShooterPlayerController`, `AShooterGameMode`
+- Hook system: `DECLARE_HOOK` macro + `AsaApi::GetHooks().SetHook()`
+- Commands: `AsaApi::GetCommands().AddChatCommand()` (chat) / `.AddConsoleCommand()` / `.AddRconCommand()`
+- Permissions: `AsaApi::GetPermissions().UserHasPermission()`
+- Player API: `AsaApi::GetApiUtils()` — `SendServerMessage`, `SendNotification`, `GetWorld`, `FindPlayerBySteamId`, etc.
 
-| Feature | Description |
-|---------|-------------|
-| **Tribe Command Hub** | Track all tribe tames with health/hunger, wild dino spawn alerts, breeding/mutation alerts |
-| **Kit System** | ARK-native kits (stone tools, metal, kibble, dino spawns) — not scrap |
-| **Economy** | Points-based: daily/work rewards, pay other players, event rewards |
-| **Teleport** | Home positions, warp locations, TPR requests |
-| **Moderation** | Kick, ban, mute, slay player dinos, auto-feed |
-| **Map Markers** | Tribe waypoints (base, farming, metal, cave, beacon, danger) |
-| **Chat Games** | Coinflip, scavenger hunt, race, kibble guide |
-| **AI Bridge** | MCP bridge connecting to sheldon's Python server for AI queries |
+---
 
-Commands are registered via `/db` (or via sheldon's natural language AI).
+## Commands
+
+All commands prefixed with `/` (ServerAPI chat command system):
+
+| Command | Description | Permission |
+|---------|-------------|------------|
+| `/tribe` | Tribe overview: members, tames, alerts | use |
+| `/tdinos` | List tribe's active tames | use |
+| `/tribealert` | Wild dino alerts near tribe | use |
+| `/dinos` | Show tracked dinos | use |
+| `/kits` | Show available kits | use |
+| `/kit [name]` | Claim a kit | use |
+| `/bal` | Show your balance | use |
+| `/pay [player] [amount]` | Pay another player | use |
+| `/daily` | Claim daily reward (24h) | use |
+| `/work` | Claim work reward (5min) | use |
+| `/home` | Teleport to home | use |
+| `/sethome` | Save home position | use |
+| `/tpr [player]` | Send teleport request | use |
+| `/tpaccept` | Accept teleport request | use |
+| `/warp [name]` | Teleport to warp | use |
+| `/setwarp [name]` | Create warp | mod |
+| `/marker add\|list\|remove` | Manage tribe markers | use |
+| `/gridmap` | Show grid map with all waypoints | use |
+| `/kick [player]` | Kick player | mod |
+| `/ban [player]` | Ban player | admin |
+| `/unban [player]` | Unban player | admin |
+| `/mute [player]` | Mute player | mod |
+| `/unmute [player]` | Unmute player | mod |
+| `/slay [player]` | Slay player's dinos | mod |
+| `/slayplayer [player]` | Slay player | mod |
+| `/tphere [player]` | Teleport player to you | mod |
+| `/feed` | Auto-feed your tames | use |
+| `/coinflip [wager]` | Flip a coin | use |
+| `/breeds` | Recent breed alerts and mutations | use |
+| `/kibble [species]` | Kibble recipe guide | use |
+| `/aibrain` | AI brain status | use |
+| `/aireset` | Reset AI context | use |
+| `/event start\|stop\|list` | Manage events | admin |
+| `/events` | Show active events | use |
+| `/drop` | Host drop party | admin |
+| `/save` | Save all data | admin |
+| `/reload` | Reload config | admin |
+| `/status` | Plugin status and stats | admin |
+| `/help` | Show all commands | use |
 
 ---
 
@@ -30,8 +71,8 @@ Commands are registered via `/db` (or via sheldon's natural language AI).
 ```
 DuckBot Plugin (C++/ServerAPI)
     │
-    ├── Tracks tribe members, dinos, breeding events
-    ├── Handles all /db command parsing and execution
+    ├── Tracks tribe members, dinos, breeding events via hooks
+    ├── Handles all command parsing and execution
     ├── Sends events to MCP bridge (tame, born, level up, etc.)
     │
     ▼
@@ -42,104 +83,36 @@ sheldon-mcp-bridge (Python)
     ├── LLM integration (Anthropic/OpenAI/Gemini/OpenRouter)
     │
     ▼
-ARK ServerAPI / Blueprint Mod
+sheldon-ai-for-ark Blueprint Mod
 ```
 
-The plugin registers commands with ServerAPI, tracks game events (tame, breed, death, join/leave), and sends them to the sheldon mcp-bridge via WebSocket. The bridge runs the agentic loop and executes tools via the plugin's command interface.
+The plugin uses `DECLARE_HOOK` macros to intercept game events and `AsaApi::GetCommands().AddChatCommand()` to register all 32+ commands. Events are sent to the sheldon MCP bridge via WebSocket for AI processing.
 
 ---
 
-## Commands
+## Hooks Used
 
-All commands prefixed with `/db`:
+| Hook | Purpose |
+|------|---------|
+| `AShooterGameMode.HandleNewPlayer_Implementation` | Player join — initialize player data |
 
-### Tribe
-| Command | Description |
-|---------|-------------|
-| `/db tribe` | Tribe overview: members, tames, alerts |
-| `/db tdinos` | List tribe's active tames |
-| `/db tribealert` | Wild dino alerts near tribe |
-
-### Dino Tracking
-| Command | Description |
-|---------|-------------|
-| `/db dinos` | Show tracked dinos |
-| `/db dinoinfo` | Get info on a specific dino |
-| `/db breeds` | Recent breed alerts and mutations |
-| `/db feed` | Auto-feed your tames |
-
-### Map Markers
-| Command | Description |
-|---------|-------------|
-| `/db marker add [name] [type]` | Add a waypoint |
-| `/db marker remove [name]` | Remove a waypoint |
-| `/db markers` | List all tribe markers |
-| `/db gridmap` | Grid map with all waypoints |
-
-### Kits
-| Command | Description |
-|---------|-------------|
-| `/db kits` | Show available kits |
-| `/db kit [name]` | Claim a kit |
-
-### Economy
-| Command | Description |
-|---------|-------------|
-| `/db bal` | Show your balance |
-| `/db pay [player] [amount]` | Pay another player |
-| `/db daily` | Claim daily reward |
-| `/db work` | Claim work reward |
-
-### Teleport
-| Command | Description |
-|---------|-------------|
-| `/db home` | Teleport to home |
-| `/db sethome` | Save home position |
-| `/db tpr [player]` | Send teleport request |
-| `/db tpaccept` | Accept teleport request |
-| `/db warp [name]` | Teleport to warp |
-| `/db setwarp [name]` | Create warp |
-
-### Moderation
-| Command | Description |
-|---------|-------------|
-| `/db kick [player]` | Kick player |
-| `/db ban [player]` | Ban player |
-| `/db mute [player]` | Mute player |
-| `/db slay [player]` | Slay player's dinos |
-| `/db slayplayer [player]` | Slay the player |
-
-### AI / Bridge
-| Command | Description |
-|---------|-------------|
-| `/db aibrain` | AI brain status |
-| `/db aireset` | Reset AI context |
-| `!ai [query]` | Send direct AI query |
-
-### Admin
-| Command | Description |
-|---------|-------------|
-| `/db reload` | Reload config |
-| `/db save` | Save data |
-| `/db status` | Plugin status |
+Additional hooks to add:
+- `AShooterGameMode.HandlePlayerLogout` — player leave
+- `OnDinoTamed` — dino taming event
+- `OnBabyBorn` — breeding event
+- `OnDinoDied` — dino death
+- `OnPlayerLevelUp` — XP level up
+- `OnChatMessage` — chat for AI prefix detection
 
 ---
 
 ## Building
 
-Requires:
-- Visual Studio 2022
-- ARK ServerAPI SDK (AsaApi)
-- ASAMD-Server compiled headers
-
-```bash
-# Clone with submodules
-git clone --recursive https://github.com/Franzferdinan51/duckbot-ai-for-ark
-
-# Open solution in Visual Studio
-# Build → Build Solution
-# Output: Binaries/*.v墩
-```
+1. Install Visual Studio 2022 with C++ desktop development
+2. Install ARK ServerAPI SDK (AsaApi) — put in `AsaApi/` sibling directory
+3. Open `plugin/DuckBot.vcxproj` in Visual Studio
+4. Build → Build Solution
+5. Output: `Binaries/DuckBot.dll` — copy to server's `ArkApi/Plugins/` directory
 
 ---
 
@@ -167,6 +140,26 @@ Config file: `ArkApi/Data/DuckBot/config.json`
 
 ---
 
+## TODO
+
+- [x] Plugin scaffold with 32 commands (stub implementations)
+- [x] AsaApi hook pattern (DECLARE_HOOK from Permissions plugin)
+- [x] Command registration pattern (AddChatCommand from Permissions plugin)
+- [x] Kit system with 5 default kits
+- [ ] Verify hook signatures against live ASA server
+- [ ] Implement all command bodies (currently stub)
+- [ ] Implement player data persistence (JSON save/load)
+- [ ] Implement warp and home teleport functionality
+- [ ] Implement tribe data tracking
+- [ ] Connect MCP bridge WebSocket client
+- [ ] Add remaining hooks: OnDinoTamed, OnBabyBorn, OnDinoDied, OnPlayerLevelUp
+- [ ] Implement moderation commands (kick, ban, slay, mute)
+- [ ] Implement kit giving system
+- [ ] Implement economy (daily, work, pay)
+- [ ] Add `/db` alias as prefix command router
+
+---
+
 ## Integration with sheldon-ai-for-ark
 
 This plugin **extends** the sheldon-ai-for-ark Blueprint mod:
@@ -180,26 +173,3 @@ The plugin sends events to the bridge:
 - `OnDinoTamed` / `OnBabyBorn` / `OnDinoDied`
 - `OnPlayerLevelUp`
 - `OnWildDinoSpawn` (Giga, Titan, etc. near tribe base)
-
----
-
-## Permission Tiers
-
-| Tier | Access |
-|------|--------|
-| `duckbot.admin` | Full access: all commands, slay, ban, event management |
-| `duckbot.mod` | Kick, mute, slay dinos, feed, setwarp |
-| `duckbot.vip` | Extra kits, faster cooldowns |
-| `duckbot.use` | Basic access: tribe, kits, economy, teleport |
-
----
-
-## Status
-
-**Active development** — this is a fork of sheldon-ai-for-ark being adapted for full DuckBot functionality.
-
-- [x] Architecture designed
-- [x] Plugin scaffold written
-- [ ] AsaApi hook verification against live server
-- [ ] Full command implementation
-- [ ] MCP bridge integration testing
