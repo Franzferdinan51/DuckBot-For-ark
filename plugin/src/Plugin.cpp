@@ -1,10 +1,12 @@
 #include "Plugin.h"
-
+#include "MCPBridge.h"
 #include <fstream>
 #include <random>
 #include <algorithm>
 #include <sstream>
 #include <cstdlib>
+
+#pragma comment(lib, "AsaApi.lib")
 
 #pragma comment(lib, "AsaApi.lib")
 
@@ -29,6 +31,12 @@ namespace DuckBot
 
         // Register hooks
         Hooks::Init();
+
+        // Start MCP bridge client
+        GetMCPBridge()->Start(
+            singleton_->config_.mcp_host,
+            singleton_->config_.mcp_port,
+            singleton_->config_.mcp_auth_token);
 
         // Register commands — AsaApi pattern (from Permissions.cpp)
         auto& commands = AsaApi::GetCommands();
@@ -87,6 +95,7 @@ namespace DuckBot
 
     void Plugin::Unload() {
         LogInfo("DuckBot unloading...");
+        GetMCPBridge()->Stop();
         SaveAllData();
         delete singleton_;
         singleton_ = nullptr;
@@ -111,10 +120,22 @@ namespace DuckBot
             LogInfo("No config found, using defaults");
             return;
         }
-        // TODO: parse JSON config with nlohmann::json like Permissions plugin
-        // For now use defaults defined in PluginConfig struct
+
+        try {
+            json j = json::parse(file);
+            config_.mcp_host = j.value("MCP", json::object()).value("host", config_.mcp_host);
+            config_.mcp_port = j.value("MCP", json::object()).value("port", config_.mcp_port);
+            config_.mcp_auth_token = j.value("MCP", json::object()).value("auth_token", config_.mcp_auth_token);
+            config_.daily_reward = j.value("Economy", json::object()).value("daily_reward", config_.daily_reward);
+            config_.work_reward = j.value("Economy", json::object()).value("work_reward", config_.work_reward);
+            config_.work_cooldown = j.value("Economy", json::object()).value("work_cooldown", config_.work_cooldown);
+            config_.teleport_cooldown = j.value("Teleport", json::object()).value("cooldown", config_.teleport_cooldown);
+            config_.default_kit_cooldown = j.value("Kits", json::object()).value("default_cooldown", config_.default_kit_cooldown);
+            LogInfo("Config loaded from " + config_path);
+        } catch (const std::exception& ex) {
+            LogError(std::string("Config parse error: ") + ex.what());
+        }
         file.close();
-        LogInfo("Config loaded");
     }
 
     void Plugin::ReloadConfigCmd(AShooterPlayerController* pc, FString* cmd, bool) {
@@ -198,17 +219,103 @@ namespace DuckBot
     // ─── Data Persistence ───────────────────────────────────────────────────
 
     void Plugin::SaveAllData() {
-        // TODO: Save to JSON using nlohmann::json (like Permissions plugin)
-        // auto path = AsaApi::GetDirectory().GetPluginDirectory(PLUGIN_NAME) + "/players.json";
-        // std::ofstream file(path);
-        // file << nlohmann::json(players_);
-        LogInfo("All data saved");
+        auto path = AsaApi::GetDirectory().GetPluginDirectory(PLUGIN_NAME);
+        std::string players_path = path + "/players.json";
+        std::string warps_path = path + "/warps.json";
+        std::string markers_path = path + "/markers.json";
+
+        try {
+            // Save players
+            {
+                json j;
+                std::lock_guard<std::mutex> lock(data_mutex_);
+                for (const auto& p : players_) {
+                    json player_json;
+                    player_json["steam_id"] = std::to_string(p.steam_id);
+                    player_json["name"] = p.name;
+                    player_json["level"] = p.level;
+                    player_json["balance"] = p.balance;
+                    player_json["tribe_id"] = p.tribe_id;
+                    player_json["is_muted"] = p.is_muted;
+                    player_json["home_x"] = p.home_x;
+                    player_json["home_y"] = p.home_y;
+                    player_json["home_z"] = p.home_z;
+                    j.push_back(player_json);
+                }
+                std::ofstream file(players_path);
+                file << j.dump(2);
+            }
+
+            // Save warps
+            {
+                json j;
+                std::lock_guard<std::mutex> lock(data_mutex_);
+                for (const auto& [name, marker] : warps_) {
+                    json m;
+                    m["name"] = marker.name;
+                    m["x"] = marker.x;
+                    m["y"] = marker.y;
+                    m["z"] = marker.z;
+                    j[name] = m;
+                }
+                std::ofstream file(warps_path);
+                file << j.dump(2);
+            }
+
+            LogInfo("All data saved");
+        } catch (const std::exception& ex) {
+            LogError(std::string("SaveAllData error: ") + ex.what());
+        }
     }
 
     void Plugin::LoadAllData() {
-        // TODO: Load from JSON
-        // auto path = AsaApi::GetDirectory().GetPluginDirectory(PLUGIN_NAME) + "/players.json";
-        LogInfo("Data loaded (using defaults)");
+        auto path = AsaApi::GetDirectory().GetPluginDirectory(PLUGIN_NAME);
+        std::string players_path = path + "/players.json";
+        std::string warps_path = path + "/warps.json";
+
+        try {
+            // Load players
+            std::ifstream pfile(players_path);
+            if (pfile.is_open()) {
+                std::lock_guard<std::mutex> lock(data_mutex_);
+                json j = json::parse(pfile);
+                for (const auto& item : j) {
+                    PlayerData p;
+                    p.steam_id = std::stoull(item.value("steam_id", "0"));
+                    p.name = item.value("name", "");
+                    p.level = item.value("level", 1);
+                    p.balance = item.value("balance", 0);
+                    p.tribe_id = item.value("tribe_id", 0);
+                    p.is_muted = item.value("is_muted", false);
+                    p.home_x = item.value("home_x", 0.0f);
+                    p.home_y = item.value("home_y", 0.0f);
+                    p.home_z = item.value("home_z", 0.0f);
+                    players_.push_back(p);
+                }
+                pfile.close();
+                LogInfo("Loaded " + std::to_string(players_.size()) + " players");
+            }
+
+            // Load warps
+            std::ifstream wfile(warps_path);
+            if (wfile.is_open()) {
+                std::lock_guard<std::mutex> lock(data_mutex_);
+                json j = json::parse(wfile);
+                for (auto& [name, item] : j.items()) {
+                    MapMarker m;
+                    m.name = item.value("name", name);
+                    m.x = item.value("x", 0.0f);
+                    m.y = item.value("y", 0.0f);
+                    m.z = item.value("z", 0.0f);
+                    warps_[name] = m;
+                }
+                wfile.close();
+                LogInfo("Loaded " + std::to_string(warps_.size()) + " warps");
+            }
+        } catch (const std::exception& ex) {
+            LogError(std::string("LoadAllData error: ") + ex.what());
+        }
+        LogInfo("Data loaded");
     }
 
     // ─── Kit Initialization ──────────────────────────────────────────────────
@@ -299,10 +406,31 @@ namespace DuckBot
         return AsaApi::GetDirectory().GetPluginDirectory(PLUGIN_NAME) + "/config.json";
     }
 
-    std::vector<std::string> SplitString(const std::string& str, wchar_t delim) {
-        std::vector<std::string> result;
-        FString fstr(str.c_str());
-        fstr.ParseIntoArray(result, &delim, true);
+    // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+    static uint64 GetSteamIdFromPC(AShooterPlayerController* pc) {
+        if (!pc) return 0;
+        FString eos_id;
+        pc->GetUniqueNetIdAsString(&eos_id);
+        try {
+            return std::stoull(*eos_id);
+        } catch (...) {
+            return 0;
+        }
+    }
+
+    static std::string GetPlayerName(AShooterPlayerController* pc) {
+        if (!pc) return "Unknown";
+        FString name;
+        pc->GetPlayerName(&name);
+        return std::string(*name);
+    }
+
+    static std::string WideToUtf8(const std::wstring& wstr) {
+        if (wstr.empty()) return "";
+        int size = WideCharToMultiByte(CP_UTF8, 0, wstr.data(), static_cast<int>(wstr.size()), nullptr, 0, nullptr, nullptr);
+        std::string result(size, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, wstr.data(), static_cast<int>(wstr.size()), result.data(), size, nullptr, nullptr);
         return result;
     }
 
@@ -324,10 +452,13 @@ namespace DuckBot
 
             // Initialize player data in DuckBot
             if (new_player) {
-                FString eos_id;
-                new_player->GetUniqueNetIdAsString(&eos_id);
-                Plugin::Get()->GetOrCreatePlayer(std::stoull(*eos_id));
-                Plugin::Get()->LogInfo("[Join] " + std::string(*eos_id));
+                uint64 steam_id = GetSteamIdFromPC(new_player);
+                std::string name = GetPlayerName(new_player);
+                Plugin::Get()->GetOrCreatePlayer(steam_id);
+                Plugin::Get()->LogInfo("[Join] " + name + " (" + std::to_string(steam_id) + ")");
+
+                // Send player_connected event to MCP bridge
+                GetMCPBridge()->SendPlayerConnected(steam_id, name);
             }
 
             return result;
