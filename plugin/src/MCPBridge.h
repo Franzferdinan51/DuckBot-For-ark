@@ -12,8 +12,9 @@ namespace DuckBot
 {
     // ─── WebSocket Message ───────────────────────────────────────────────────
     struct WSMessage {
-        std::string type;
-        std::string data;
+        std::string type;      // "event" for game events, "player_message" for chat
+        std::string sub_type;  // e.g. "player_connected", "dino_tamed" — the actual event type
+        std::string data;      // JSON payload
         int request_id = 0;
     };
 

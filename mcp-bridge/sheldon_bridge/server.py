@@ -168,6 +168,11 @@ class BridgeServer:
             # Game mod responding to a tool request (future use)
             pass
 
+        elif msg_type == "event":
+            # Game event broadcast from DuckBot C++ plugin
+            # e.g. dino_tamed, baby_born, dino_died, player_connected, player_disconnected, level_up
+            await self._handle_game_event(msg, session, websocket)
+
         elif msg_type == "ping":
             await websocket.send(json.dumps({"type": "pong"}))
 
@@ -226,6 +231,30 @@ class BridgeServer:
             f"{result.duration_ms:.0f}ms"
         )
 
+    async def _handle_game_event(
+        self, msg: dict, session, websocket: ServerConnection
+    ) -> None:
+        """Handle game event messages from the DuckBot C++ plugin.
+
+        Events are broadcast to the AI agent so it can maintain situational
+        awareness (e.g. 'a Rex was tamed', 'player X disconnected',
+        'a baby Giganotosaurus was born'). The agent decides whether to
+        react — it doesn't auto-respond to every event.
+        """
+        event_data = msg.get("data", {})
+        event_type = event_data.get("event", "unknown")
+
+        logger.debug(f"Game event: {event_type} — {event_data}")
+
+        # Build a notification for the agent's conversation context
+        event_description = _format_game_event(event_type, event_data)
+        if event_description:
+            # Inject the event as a system-level observation into the session
+            session.add_assistant_message({
+                "role": "system",
+                "content": f"[Game Event] {event_description}",
+            })
+
     async def _cleanup_loop(self) -> None:
         """Periodically clean up expired sessions and rate limiter data."""
         while True:
@@ -273,3 +302,19 @@ async def run_server(config: BridgeConfig) -> None:
 
     cleanup_task.cancel()
     logger.info("Sheldon Bridge stopped.")
+
+
+def _format_game_event(event_type: str, data: dict) -> str | None:
+    """Format a game event into a human-readable description for the AI."""
+
+    descriptions = {
+        "player_connected": f"Player '{data.get('name', '?')}' (Steam: {data.get('steam_id', '?')}) connected.",
+        "player_disconnected": f"Player '{data.get('name', '?')}' (Steam: {data.get('steam_id', '?')}) disconnected.",
+        "dino_tamed": f"A {data.get('species', '?')} (level {data.get('level', '?')}) was tamed by Steam {data.get('steam_id', '?')}.",
+        "baby_born": f"A baby {data.get('species', '?')} (level {data.get('level', '?')}) was born! Mother: {data.get('mother', '?')}, Father: {data.get('father', '?')}.",
+        "dino_died": f"A {data.get('species', '?')} (level {data.get('level', '?')}) died. Owner Steam: {data.get('steam_id', '?')}.",
+        "player_level_up": f"Player '{data.get('name', '?')}' leveled up to level {data.get('level', '?')}.",
+        "wild_dino_alert": f"Wild {data.get('species', '?')} (level {data.get('level', '?')}) detected near tribe base!",
+    }
+
+    return descriptions.get(event_type)

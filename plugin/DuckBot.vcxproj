@@ -81,7 +81,7 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)Libs;$(SolutionDir)..\AsaApi\out_lib</AdditionalLibraryDirectories>
-      <AdditionalDependencies>AsaApi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>AsaApi.lib;ws2_32.lib;advapi32.lib;crypt32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>xcopy /I /Y "$(TargetPath)" "$(SolutionDir)Binaries\" 2&gt;nul</Command>
@@ -106,7 +106,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)Libs;$(SolutionDir)..\AsaApi\out_lib</AdditionalLibraryDirectories>
-      <AdditionalDependencies>AsaApi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>AsaApi.lib;ws2_32.lib;advapi32.lib;crypt32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>if not exist "$(SolutionDir)Binaries" mkdir "$(SolutionDir)Binaries"

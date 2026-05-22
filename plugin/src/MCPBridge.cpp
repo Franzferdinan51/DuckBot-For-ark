@@ -2,6 +2,7 @@
 #include "Plugin.h"
 
 #pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "advapi32.lib")
 
 namespace DuckBot
 {
@@ -273,6 +274,7 @@ namespace DuckBot
                 if (send_queue_.empty()) continue;
                 // Build JSON from message
                 auto& msg = send_queue_.front();
+                // The event type is stored inside the JSON data as "event" field
                 std::string json = "{\"type\":\"" + msg.type + "\",\"data\":" + msg.data + ",\"request_id\":" + std::to_string(msg.request_id) + "}";
                 send_queue_.erase(send_queue_.begin());
                 next_msg = std::move(json);
