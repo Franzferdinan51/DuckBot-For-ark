@@ -216,6 +216,11 @@ namespace DuckBot
     namespace Hooks {
         // DECLARE_HOOK callbacks (following AsaApi pattern from Permissions plugin)
         DECLARE_HOOK(AShooterGameMode_HandleNewPlayer, bool, AShooterGameMode*, AShooterPlayerController*, UPrimalPlayerData*, AShooterCharacter*, bool);
+        DECLARE_HOOK(AShooterGameMode_HandlePlayerLogout, bool, AShooterGameMode*, AShooterPlayerController*);
+        DECLARE_HOOK(AShooterGameMode_OnDinoTamed, bool, AShooterGameMode*, AShooterPlayerController*, AShooterCharacter*, FString*);
+        DECLARE_HOOK(AShooterGameMode_OnBabyBorn, bool, AShooterGameMode*, AShooterCharacter*, AShooterCharacter*, bool);
+        DECLARE_HOOK(AShooterGameMode_OnDinoDied, bool, AShooterGameMode*, AShooterCharacter*, float, AActor*);
+        DECLARE_HOOK(AShooterPlayerController_HandlePlayerLevelUp, bool, AShooterPlayerController*, int);
 
         void Init();
     }

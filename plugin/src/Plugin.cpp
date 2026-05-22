@@ -464,6 +464,118 @@ namespace DuckBot
             return result;
         }
 
+        bool Hook_AShooterGameMode_HandlePlayerLogout(
+            AShooterGameMode* _this,
+            AShooterPlayerController* player)
+        {
+            auto result = AShooterGameMode_HandlePlayerLogout_original(_this, player);
+
+            if (player) {
+                uint64 steam_id = GetSteamIdFromPC(player);
+                std::string name = GetPlayerName(player);
+                Plugin::Get()->LogInfo("[Leave] " + name + " (" + std::to_string(steam_id) + ")");
+                GetMCPBridge()->SendPlayerDisconnected(steam_id, name);
+
+                // Update tribe dinos
+                auto* pData = Plugin::Get()->GetPlayerBySteamId(steam_id);
+                if (pData && pData->tribe_id > 0) {
+                    // Mark tribe dinos as offline (owned by this player)
+                }
+                Plugin::Get()->SaveAllData();
+            }
+            return result;
+        }
+
+        bool Hook_AShooterGameMode_OnDinoTamed(
+            AShooterGameMode* _this,
+            AShooterPlayerController* tamer,
+            AShooterCharacter* dino,
+            FString* species_name)
+        {
+            auto result = AShooterGameMode_OnDinoTamed_original(_this, tamer, dino, species_name);
+
+            if (tamer && dino && species_name) {
+                uint64 steam_id = GetSteamIdFromPC(tamer);
+                std::string species = std::string(*species_name);
+                // Get dino level from its XP or status values
+                int level = 1;
+                Plugin::Get()->LogInfo("[Tame] " + GetPlayerName(tamer) + " tamed " + species + " Lv" + std::to_string(level));
+                GetMCPBridge()->SendDinoTamed(steam_id, species, level);
+            }
+            return result;
+        }
+
+        bool Hook_AShooterGameMode_OnBabyBorn(
+            AShooterGameMode* _this,
+            AShooterCharacter* baby,
+            AShooterCharacter* mother,
+            bool is_from_breeding)
+        {
+            auto result = AShooterGameMode_OnBabyBorn_original(_this, baby, mother, is_from_breeding);
+
+            if (baby) {
+                FString species_fstr;
+                baby->GetClass()->GetName(&species_fstr);
+                std::string species = std::string(*species_fstr);
+
+                uint64 mother_steam = 0;
+                std::string mother_name = "unknown";
+                std::string father_name = "unknown";
+                if (mother) {
+                    mother_steam = GetSteamIdFromPC(reinterpret_cast<AShooterPlayerController*>(mother->OwnerField().Get()));
+                    mother_name = GetPlayerName(reinterpret_cast<AShooterPlayerController*>(mother->OwnerField().Get()));
+                }
+
+                int level = 1;
+                Plugin::Get()->LogInfo("[Born] " + species + " Lv" + std::to_string(level) + " from " + mother_name);
+                GetMCPBridge()->SendBabyBorn(mother_steam, species, level, mother_name, father_name);
+            }
+            return result;
+        }
+
+        bool Hook_AShooterGameMode_OnDinoDied(
+            AShooterGameMode* _this,
+            AShooterCharacter* dino,
+            float damage_amount,
+            AActor* damage_source)
+        {
+            auto result = AShooterGameMode_OnDinoDied_original(_this, dino, damage_amount, damage_source);
+
+            if (dino) {
+                FString species_fstr;
+                dino->GetClass()->GetName(&species_fstr);
+                std::string species = std::string(*species_fstr);
+                int level = 1;
+
+                uint64 owner_steam = 0;
+                if (dino->OwnerField().Get()) {
+                    if (auto* pc = reinterpret_cast<AShooterPlayerController*>(dino->OwnerField().Get())) {
+                        owner_steam = GetSteamIdFromPC(pc);
+                    }
+                }
+
+                Plugin::Get()->LogInfo("[Died] " + species + " Lv" + std::to_string(level) + " (owner: " + std::to_string(owner_steam) + ")");
+                GetMCPBridge()->SendDinoDied(owner_steam, species, level);
+            }
+            return result;
+        }
+
+        bool Hook_AShooterPlayerController_HandlePlayerLevelUp(
+            AShooterPlayerController* _this,
+            int new_level)
+        {
+            auto result = AShooterPlayerController_HandlePlayerLevelUp_original(_this, new_level);
+
+            if (_this) {
+                uint64 steam_id = GetSteamIdFromPC(_this);
+                auto* pData = Plugin::Get()->GetOrCreatePlayer(steam_id);
+                if (pData) pData->level = new_level;
+                Plugin::Get()->LogInfo("[LevelUp] " + GetPlayerName(_this) + " reached level " + std::to_string(new_level));
+                GetMCPBridge()->SendPlayerLevelUp(steam_id, new_level);
+            }
+            return result;
+        }
+
         void Init() {
             Log::GetLog()->info("DuckBot Hooks::Init called");
             // Register hook on player join
@@ -471,7 +583,27 @@ namespace DuckBot
                 "AShooterGameMode.HandleNewPlayer_Implementation(AShooterPlayerController*,UPrimalPlayerData*,AShooterCharacter*,bool)",
                 &Hook_AShooterGameMode_HandleNewPlayer,
                 &AShooterGameMode_HandleNewPlayer_original);
-            Log::GetLog()->info("DuckBot hooks registered");
+            AsaApi::GetHooks().SetHook(
+                "AShooterGameMode.HandlePlayerLogout_Implementation(AShooterPlayerController*)",
+                &Hook_AShooterGameMode_HandlePlayerLogout,
+                &AShooterGameMode_HandlePlayerLogout_original);
+            AsaApi::GetHooks().SetHook(
+                "AShooterGameMode.OnDinoTamed_Implementation(AShooterPlayerController*,AShooterCharacter*,FString*)",
+                &Hook_AShooterGameMode_OnDinoTamed,
+                &AShooterGameMode_OnDinoTamed_original);
+            AsaApi::GetHooks().SetHook(
+                "AShooterGameMode.OnBabyBorn_Implementation(AShooterCharacter*,AShooterCharacter*,bool)",
+                &Hook_AShooterGameMode_OnBabyBorn,
+                &AShooterGameMode_OnBabyBorn_original);
+            AsaApi::GetHooks().SetHook(
+                "AShooterGameMode.OnDinoDied_Implementation(AShooterCharacter*,float,AActor*)",
+                &Hook_AShooterGameMode_OnDinoDied,
+                &AShooterGameMode_OnDinoDied_original);
+            AsaApi::GetHooks().SetHook(
+                "AShooterPlayerController.HandlePlayerLevelUp_Implementation(int)",
+                &Hook_AShooterPlayerController_HandlePlayerLevelUp,
+                &AShooterPlayerController_HandlePlayerLevelUp_original);
+            Log::GetLog()->info("DuckBot hooks registered (6 hooks)");
         }
     }
 
