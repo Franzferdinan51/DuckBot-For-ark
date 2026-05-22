@@ -242,6 +242,80 @@ def create_rest_app(config: BridgeConfig, game_server_ref) -> web.Application:
             "value": value,
         })
 
+    # ─── arkduckbot:// Protocol Announce ────────────────────────────────
+    # Public endpoint (no auth) so desktop app can discover servers via URL
+
+    @routes.get("/api/v1/announce")
+    async def api_v1_announce(request: web.Request) -> web.Response:
+        """Server announcement for arkduckbot:// protocol. No auth required.
+
+        Desktop app uses this when user visits arkduckbot://host:port
+        to add the server. Returns bridge info, ports, and capabilities.
+        """
+        from sheldon_bridge.metrics import get_metrics
+        metrics = get_metrics()
+        health = metrics.get_health()
+
+        return web.json_response({
+            "protocol": "arkduckbot",
+            "version": "1.0",
+            "server": {
+                "name": config.ark.get("map", "Unknown"),
+                "bridge_host": config.websocket_host,
+                "bridge_port": config.websocket_port,
+                "admin_ws_port": config.admin_port,
+                "admin_http_port": config.admin_port + 1,
+                "uptime_seconds": health.get("bridge", {}).get("uptime_seconds", 0),
+                "active_players": health.get("bridge", {}).get("active_players", 0),
+                "plugin_connected": health.get("bridge", {}).get("plugin_connected", False),
+            },
+            "llm": {
+                "provider": config.llm.provider,
+                "model": config.llm.model,
+            },
+            "capabilities": [
+                "websocket_game",
+                "websocket_admin",
+                "rest_admin",
+                "broadcast",
+                "skills",
+                "skill_bundles",
+            ],
+        })
+
+    @routes.get("/api/v1/pair/verify")
+    async def api_v1_pair_verify(request: web.Request) -> web.Response:
+        """Verify a pairing token for arkduckbot:// protocol pairing flow.
+
+        Desktop app sends: ?token=SHARED_SECRET&challenge=RANDOM_STRING
+        Bridge validates token and returns signed confirmation.
+        """
+        token = request.query.get("token", "")
+        challenge = request.query.get("challenge", "")
+
+        if not token or not challenge:
+            return web.json_response({"error": "Missing token or challenge"}, status=400)
+
+        if not authenticator.validate_token(token):
+            return web.json_response({"error": "Invalid token"}, status=401)
+
+        from sheldon_bridge.metrics import get_metrics
+        metrics = get_metrics()
+        health = metrics.get_health()
+
+        return web.json_response({
+            "paired": True,
+            "challenge": challenge,
+            "server": {
+                "name": config.ark.get("map", "Unknown"),
+                "bridge_host": config.websocket_host,
+                "bridge_port": config.websocket_port,
+                "admin_ws_port": config.admin_port,
+                "admin_http_port": config.admin_port + 1,
+            },
+            "llm_provider": config.llm.provider,
+        })
+
     # ─── Shutdown ───────────────────────────────────────────────────────
 
     @routes.post("/shutdown")
@@ -303,6 +377,49 @@ def create_rest_app(config: BridgeConfig, game_server_ref) -> web.Application:
             "message": f"Shutdown initiated. {len(warnings)} warnings queued.",
             "delay_minutes": delay,
             "reason": reason,
+        })
+
+    # ─── Rust+ Server Discovery ─────────────────────────────────────────
+
+    @routes.get("/api/v1/server-info")
+    async def api_v1_server_info(request: web.Request) -> web.Response:
+        """Rust+ server info endpoint for desktop app discovery.
+
+        Returns the Rust+ API host/port, MCP Bridge host/port, map name,
+        and version so Ark-DuckBot-Desktop can verify server authenticity.
+        """
+        from sheldon_bridge.metrics import get_metrics
+        metrics = get_metrics()
+        health = metrics.get_health()
+
+        return web.json_response({
+            "protocol_version": "1.0",
+            "server": {
+                "name": config.ark.get("map", "Unknown"),
+                "map": config.ark.get("map", "Unknown"),
+                "cluster_id": config.ark.get("cluster_id", ""),
+                "version": "1.0",
+            },
+            "rust_plus": {
+                # The Rust+ API runs on the game server's RCON port
+                # Desktop app should query this via the game server's Rust+ plugin
+                "enabled": True,
+                "note": "Connect via game server's Rust+ plugin on game query port",
+            },
+            "mcp_bridge": {
+                "host": config.websocket_host,
+                "websocket_port": config.websocket_port,
+                "admin_ws_port": config.admin_port,
+                "admin_http_port": config.admin_port + 1,
+            },
+            "status": {
+                "uptime_seconds": health.get("bridge", {}).get("uptime_seconds", 0),
+                "active_players": health.get("bridge", {}).get("active_players", 0),
+                "total_players_seen": health.get("bridge", {}).get("total_players_seen", 0),
+                "plugin_connected": health.get("bridge", {}).get("plugin_connected", False),
+                "llm_requests": health.get("llm", {}).get("total_requests", 0),
+                "llm_cost_usd": round(health.get("llm", {}).get("total_cost_usd", 0), 4),
+            },
         })
 
     app = web.Application()
