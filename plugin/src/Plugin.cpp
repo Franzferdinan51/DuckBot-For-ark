@@ -999,8 +999,37 @@ ADMIN: /reload, /save, /status, /event
         }
 
         void OnAIReset(AShooterPlayerController* pc, FString* cmd, bool) {
-            uint64 steam_id = GetSteamIdFromPC(pc);
             Plugin::Get()->SendReply(pc, "[DuckBot] AI context reset for your session.");
+        }
+
+        void OnCoinFlip(AShooterPlayerController* pc, FString* cmd, bool) {
+            TArray<FString> parsed;
+            cmd->ParseIntoArray(parsed, L" ", true);
+            int wager = parsed.IsValidIndex(1) ? std::stoi(std::string(*parsed[1])) : 0;
+
+            static std::random_device rd;
+            static std::mt19937 gen(rd());
+            bool result = std::bernoulli_distribution(0.5)(gen);
+
+            std::ostringstream oss;
+            if (wager > 0) {
+                uint64 steam_id = GetSteamIdFromPC(pc);
+                auto* pData = Plugin::Get()->GetOrCreatePlayer(steam_id);
+                if (pData->balance < wager) {
+                    Plugin::Get()->SendReply(pc, "[DuckBot] Insufficient balance.");
+                    return;
+                }
+                if (result) {
+                    pData->balance += wager;
+                    oss << "[DuckBot] Coin: HEADS | Wager: " << wager << " | YOU WIN!";
+                } else {
+                    pData->balance -= wager;
+                    oss << "[DuckBot] Coin: TAILS | Wager: " << wager << " | YOU LOSE!";
+                }
+            } else {
+                oss << "[DuckBot] Coin: " << (result ? "HEADS" : "TAILS");
+            }
+            Plugin::Get()->SendReply(pc, oss.str());
         }
 
         void OnDaily(AShooterPlayerController* pc, FString* cmd, bool) {
@@ -1050,32 +1079,9 @@ ADMIN: /reload, /save, /status, /event
             Plugin::Get()->SendReply(pc, oss.str());
         }
 
-        void OnBreeds(AShooterPlayerController* pc, FString* cmd, bool) {
-            Plugin::Get()->SendReply(pc, "[DuckBot] No recent breed alerts. (breeding tracker TODO)");
-        }
-
-        void OnKibble(AShooterPlayerController* pc, FString* cmd, bool) {
-            TArray<FString> parsed;
-            cmd->ParseIntoArray(parsed, L" ", true);
-            if (!parsed.IsValidIndex(1)) {
-                Plugin::Get()->SendReply(pc, "[DuckBot] Usage: /kibble [dino species]");
-                return;
-            }
-            std::string species = std::string(*parsed[1]);
-            std::string recipe = "[DuckBot] Kibble recipe for " + species + ": (recipe data TODO — need ARK kibble CSV)";
-            Plugin::Get()->SendReply(pc, recipe);
-        }
-
-        void OnAIBrain(AShooterPlayerController* pc, FString* cmd, bool) {
-            bool connected = GetMCPBridge()->IsConnected();
-            std::ostringstream oss;
-            oss << "[DuckBot] AI Bridge: " << (connected ? "CONNECTED" : "DISCONNECTED");
-            oss << " | Host: " << Plugin::Get()->GetConfig().mcp_host << ":" << Plugin::Get()->GetConfig().mcp_port;
-            Plugin::Get()->SendReply(pc, oss.str());
-        }
-
-        void OnAIReset(AShooterPlayerController* pc, FString* cmd, bool) {
-            Plugin::Get()->SendReply(pc, "[DuckBot] AI context reset for your session.");
+        void OnDrop(AShooterPlayerController* pc, FString* cmd, bool) {
+            if (!Plugin::Get()->HasPermission(pc, PERM_ADMIN)) return;
+            Plugin::Get()->SendReply(pc, "[DuckBot] Drop party started! (not yet implemented)");
         }
 
         void OnSave(AShooterPlayerController* pc, FString* cmd, bool) {
@@ -1123,11 +1129,6 @@ ADMIN: /reload, /save, /status, /event
 
         void OnEvents(AShooterPlayerController* pc, FString* cmd, bool) {
             Plugin::Get()->SendReply(pc, "[DuckBot] Active events: (event system TODO)");
-        }
-
-        void OnDrop(AShooterPlayerController* pc, FString* cmd, bool) {
-            if (!Plugin::Get()->HasPermission(pc, PERM_ADMIN)) return;
-            Plugin::Get()->SendReply(pc, "[DuckBot] Drop party started! (not yet implemented)");
         }
 
         void OnPay(AShooterPlayerController* pc, FString* cmd, bool) {
