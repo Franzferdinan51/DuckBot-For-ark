@@ -52,6 +52,15 @@ namespace DuckBot
                           const std::string& mother, const std::string& father);
         void SendDinoDied(uint64 steam_id, const std::string& species, int level);
         void SendPlayerLevelUp(uint64 steam_id, int new_level);
+        void SendPositionUpdate(
+            uint64 steam_id,
+            const std::string& name,
+            int tribe_id,
+            float x,
+            float y,
+            float z,
+            float facing_yaw
+        );
 
     private:
         void ConnectLoop();       // background thread: connect + recv loop

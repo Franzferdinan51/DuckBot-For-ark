@@ -48,19 +48,27 @@ namespace DuckBot
         std::vector<unsigned char> frame;
         frame.push_back(0x81); // FIN + text frame
         size_t len = text.size();
+        const unsigned char mask_key[4] = {
+            static_cast<unsigned char>(rand() & 0xFF),
+            static_cast<unsigned char>(rand() & 0xFF),
+            static_cast<unsigned char>(rand() & 0xFF),
+            static_cast<unsigned char>(rand() & 0xFF),
+        };
         if (len < 126) {
-            frame.push_back(static_cast<unsigned char>(len));
+            frame.push_back(static_cast<unsigned char>(len) | 0x80);
         } else if (len < 65536) {
-            frame.push_back(126);
+            frame.push_back(126 | 0x80);
             frame.push_back((len >> 8) & 0xFF);
             frame.push_back(len & 0xFF);
         } else {
-            frame.push_back(127);
+            frame.push_back(127 | 0x80);
             for (int i = 7; i >= 0; --i)
                 frame.push_back((len >> (i * 8)) & 0xFF);
         }
-        for (char c : text)
-            frame.push_back(static_cast<unsigned char>(c));
+        frame.insert(frame.end(), std::begin(mask_key), std::end(mask_key));
+        for (size_t i = 0; i < len; ++i) {
+            frame.push_back(static_cast<unsigned char>(text[i]) ^ mask_key[i % 4]);
+        }
         return frame;
     }
 
@@ -275,8 +283,12 @@ namespace DuckBot
                 if (!running_) break;
                 if (send_queue_.empty()) continue;
                 auto& msg = send_queue_.front();
-                // The event type is stored inside the JSON data as "event" field
-                std::string json = "{\"type\":\"" + msg.type + "\",\"data\":" + msg.data + ",\"request_id\":" + std::to_string(msg.request_id) + "}";
+                std::string json;
+                if (msg.type == "position_update") {
+                    json = msg.data;
+                } else {
+                    json = "{\"type\":\"" + msg.type + "\",\"data\":" + msg.data + ",\"request_id\":" + std::to_string(msg.request_id) + "}";
+                }
                 send_queue_.erase(send_queue_.begin());
                 can_send = connected_;
                 next_msg = std::move(json);
@@ -361,9 +373,33 @@ namespace DuckBot
         json data = {
             {"steam_id", std::to_string(steam_id)},
             {"level", new_level},
-            {"event", "player_levelup"}
+            {"event", "player_level_up"}
         };
         Send({"event", data.dump()});
+    }
+
+    void MCPBridgeClient::SendPositionUpdate(
+        uint64 steam_id,
+        const std::string& name,
+        int tribe_id,
+        float x,
+        float y,
+        float z,
+        float facing_yaw
+    ) {
+        json message = {
+            {"type", "position_update"},
+            {"player_id", std::to_string(steam_id)},
+            {"display_name", name},
+            {"tribe_id", std::to_string(tribe_id)},
+            {"position", {
+                {"x", x},
+                {"y", y},
+                {"z", z}
+            }},
+            {"facing_yaw", facing_yaw}
+        };
+        Send({"position_update", "", message.dump()});
     }
 
     // ─── Singleton ────────────────────────────────────────────────────────────

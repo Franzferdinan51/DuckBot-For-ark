@@ -126,7 +126,7 @@ class Agent:
 
         # Stream the LLM response
         tools = self.registry.get_tools_for_tier(tier)
-        tools_llm = self.registry.to_llm_format(tools) if tools else None
+        tools_llm = self.registry.to_llm_format(tier) if tools else None
 
         # Check if streaming with tools is viable — if not, fall back to regular run
         if tools_llm:

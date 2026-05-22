@@ -530,13 +530,14 @@ class TestSessionIsolation:
 
         assert session.player.player_id == original_id
 
-    def test_removing_session_clears_all_data(self, player_context):
+    @pytest.mark.asyncio
+    async def test_removing_session_clears_all_data(self, player_context):
         """Removing a session should fully clear it."""
         manager = SessionManager()
         session = manager.create(player_context)
         session.add_user_message("sensitive data")
 
-        manager.remove(player_context.player_id)
+        await manager.remove(player_context.player_id)
 
         assert manager.get(player_context.player_id) is None
 

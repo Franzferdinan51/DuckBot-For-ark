@@ -422,6 +422,28 @@ namespace DuckBot
         return std::string(*name);
     }
 
+    static void SendPlayerPositionSnapshot(AShooterPlayerController* pc) {
+        if (!pc) return;
+
+        const uint64 steam_id = GetSteamIdFromPC(pc);
+        if (steam_id == 0) return;
+
+        const std::string name = GetPlayerName(pc);
+        const int tribe_id = Plugin::Get()->GetPlayerTribeId(pc);
+        const FVector location = pc->GetActorLocation();
+        const FRotator rotation = pc->GetControlRotation();
+
+        GetMCPBridge()->SendPositionUpdate(
+            steam_id,
+            name,
+            tribe_id,
+            location.X,
+            location.Y,
+            location.Z,
+            rotation.Yaw
+        );
+    }
+
     static std::string WideToUtf8(const std::wstring& wstr) {
         if (wstr.empty()) return "";
         int size = WideCharToMultiByte(CP_UTF8, 0, wstr.data(), static_cast<int>(wstr.size()), nullptr, 0, nullptr, nullptr);
@@ -455,6 +477,7 @@ namespace DuckBot
 
                 // Send player_connected event to MCP bridge
                 GetMCPBridge()->SendPlayerConnected(steam_id, name);
+                SendPlayerPositionSnapshot(new_player);
             }
 
             return result;
@@ -568,6 +591,7 @@ namespace DuckBot
                 if (pData) pData->level = new_level;
                 Plugin::Get()->LogInfo("[LevelUp] " + GetPlayerName(_this) + " reached level " + std::to_string(new_level));
                 GetMCPBridge()->SendPlayerLevelUp(steam_id, new_level);
+                SendPlayerPositionSnapshot(_this);
             }
             return result;
         }

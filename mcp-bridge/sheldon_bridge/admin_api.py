@@ -32,7 +32,7 @@ from websockets.asyncio.server import serve, ServerConnection
 
 from sheldon_bridge.auth import TokenAuthenticator
 from sheldon_bridge.config import BridgeConfig
-from sheldon_bridge.duckbot_handler import get_command_queue
+from sheldon_bridge.duckbot_handler import QueuedCommand, get_command_queue
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +202,6 @@ class AdminServer:
         if cmd == "broadcast":
             message = msg.get("message", "")
             if message:
-                from sheldon_bridge.duckbot_handler import get_command_queue
                 queue = get_command_queue()
                 cmd_obj = QueuedCommand(
                     action="console_command",
@@ -471,7 +470,7 @@ class AdminServer:
     async def _kill_session(self, player_id: str) -> None:
         """Remove a player's session (kick them)."""
         if self._game and hasattr(self._game, "sessions"):
-            self._game.sessions.remove(player_id)
+            await self._game.sessions.remove(player_id)
 
     async def _ai_chat(self, query: str) -> dict[str, Any]:
         """Run a free-form AI query from the desktop admin.

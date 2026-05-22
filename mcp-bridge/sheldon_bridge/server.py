@@ -27,6 +27,7 @@ from sheldon_bridge.intent import IntentClassifier, IntentType
 from sheldon_bridge.providers.llm import LLMProvider
 from sheldon_bridge.session import SessionManager
 from sheldon_bridge.tools.registry import ToolRegistry
+from sheldon_bridge.duckbot_handler import create_duckbot_handler
 
 # Import tool modules to trigger @tool registration
 import sheldon_bridge.tools.knowledge  # noqa: F401
@@ -69,12 +70,14 @@ class BridgeServer:
         # World context for spatial awareness
         from sheldon_bridge.world_context import get_world_context
         self.world = get_world_context()
+        self._game_handler = create_duckbot_handler()
 
         # Agent
         self.agent = Agent(
             llm=self.llm,
             registry=self.registry,
             rate_limiter=self.rate_limiter,
+            game_command_handler=self._game_handler,
         )
 
         # Intent classifier for fast routing
@@ -118,6 +121,8 @@ class BridgeServer:
                 facing_yaw=player_data.get("facing_yaw", 0.0),
             )
             player_id = player.player_id
+            if player_id == "server_plugin":
+                self._game_handler.mark_connected(player_id)
 
             # Track player in world context immediately on connect
             if player.position:
@@ -185,6 +190,8 @@ class BridgeServer:
                 self._connections.pop(player_id, None)
                 await self.sessions.remove(player_id)
                 await self.world.remove_player(player_id)
+                if player_id == "server_plugin":
+                    self._game_handler.mark_disconnected()
 
     async def _handle_message(
         self, msg: dict, session, websocket: ServerConnection
@@ -198,14 +205,20 @@ class BridgeServer:
         elif msg_type == "position_update":
             # Update player position (sent periodically by the mod)
             pos = msg.get("position", {})
-            session.player.update_position(pos, msg.get("facing_yaw", 0.0))
+            target_player_id = msg.get("player_id") or session.player.player_id
+            target_display_name = msg.get("display_name") or session.player.display_name
+            target_tribe_id = msg.get("tribe_id") or session.player.tribe_id
+            facing_yaw = msg.get("facing_yaw", 0.0)
+
+            if target_player_id == session.player.player_id:
+                session.player.update_position(pos, facing_yaw)
             # Keep world context in sync for spatial queries
             await self.world.update_player(
-                session.player.player_id,
-                display_name=session.player.display_name,
-                tribe_id=session.player.tribe_id,
+                target_player_id,
+                display_name=target_display_name,
+                tribe_id=target_tribe_id,
                 position=pos,
-                facing_yaw=msg.get("facing_yaw", 0.0),
+                facing_yaw=facing_yaw,
             )
 
         elif msg_type == "tool_response":
@@ -461,8 +474,30 @@ class BridgeServer:
         """
         event_data = msg.get("data", {})
         event_type = event_data.get("event", "unknown")
+        tribe_id = str(event_data.get("tribe_id", "") or "")
 
         logger.debug(f"Game event: {event_type} — {event_data}")
+
+        if event_type == "tribe_base_set" and tribe_id and event_data.get("position"):
+            await self.world.set_tribe_base(
+                tribe_id,
+                event_data.get("tribe_name", tribe_id),
+                event_data["position"],
+                radius=float(event_data.get("radius", 500.0)),
+            )
+
+        if event_type == "player_disconnected" and event_data.get("steam_id"):
+            await self.world.remove_player(str(event_data["steam_id"]))
+
+        if event_type in {"dino_tamed", "baby_born", "dino_died", "wild_dino_alert"}:
+            await self.world.record_dino_event(
+                event=event_type,
+                species=event_data.get("species", "unknown"),
+                tribe_id=tribe_id,
+                position=event_data.get("position"),
+                level=int(event_data.get("level", 0) or 0),
+                actor_id=str(event_data.get("dino_id", "") or ""),
+            )
 
         # Build a notification for the agent's conversation context
         event_description = _format_game_event(event_type, event_data)

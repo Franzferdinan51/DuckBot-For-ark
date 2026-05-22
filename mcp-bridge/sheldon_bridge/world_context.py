@@ -21,7 +21,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -41,6 +40,18 @@ class TrackedPlayer:
 
 
 @dataclass
+class TrackedDinoEvent:
+    """A dino-related event with optional location data."""
+    event: str
+    species: str
+    tribe_id: str
+    position: dict[str, float]
+    level: int = 0
+    actor_id: str = ""
+    observed_at: float = field(default_factory=time.time)
+
+
+@dataclass
 class TribeBase:
     """A tribe's home base center (set by tribe leader or auto-detected)."""
     tribe_id: str
@@ -55,6 +66,7 @@ class WorldContext:
     def __init__(self):
         self._players: dict[str, TrackedPlayer] = {}
         self._tribe_bases: dict[str, TribeBase] = {}
+        self._dino_events: list[TrackedDinoEvent] = []
         self._lock = asyncio.Lock()
 
     # ─── Player Tracking ─────────────────────────────────────────────────
@@ -179,23 +191,79 @@ class WorldContext:
         that have position data near the tribe base. Only works for dinos
         the bridge has seen through game events.
         """
-        # This will be populated from game events in DuckBotSession
-        # For now, return structure for future injection
-        return []
+        base = await self.get_tribe_base(tribe_id)
+        if not base:
+            return []
+
+        species_allow = {species.lower() for species in species_filter or []}
+        cx = base.position.get("x", 0.0)
+        cy = base.position.get("y", 0.0)
+        cz = base.position.get("z", 0.0)
+        r2 = base.radius * base.radius
+        results: list[dict[str, Any]] = []
+
+        async with self._lock:
+            for event in self._dino_events:
+                if species_allow and event.species.lower() not in species_allow:
+                    continue
+                dx = event.position.get("x", 0.0) - cx
+                dy = event.position.get("y", 0.0) - cy
+                dz = event.position.get("z", 0.0) - cz
+                if dx * dx + dy * dy + dz * dz > r2:
+                    continue
+                results.append(
+                    {
+                        "event": event.event,
+                        "species": event.species,
+                        "tribe_id": event.tribe_id,
+                        "position": event.position,
+                        "level": event.level,
+                        "actor_id": event.actor_id,
+                        "observed_at": event.observed_at,
+                    }
+                )
+
+        return results
 
     async def get_players_near_tribe_base(
         self,
         tribe_id: str,
     ) -> list[TrackedPlayer]:
-        """Get all non-tribe players within tribe base territory."""
+        """Get all players within tribe base territory."""
         base = await self.get_tribe_base(tribe_id)
         if not base:
             return []
         return await self.get_players_in_radius(
             base.position,
             base.radius,
-            tribe_id=tribe_id,
         )
+
+    async def record_dino_event(
+        self,
+        event: str,
+        species: str,
+        tribe_id: str,
+        position: dict[str, float] | None = None,
+        level: int = 0,
+        actor_id: str = "",
+    ) -> None:
+        """Store a dino event so spatial tools can inspect recent sightings."""
+        if not position:
+            return
+
+        async with self._lock:
+            self._dino_events.append(
+                TrackedDinoEvent(
+                    event=event,
+                    species=species,
+                    tribe_id=tribe_id,
+                    position=position,
+                    level=level,
+                    actor_id=actor_id,
+                )
+            )
+            if len(self._dino_events) > 500:
+                self._dino_events = self._dino_events[-500:]
 
     # ─── Stats ────────────────────────────────────────────────────────────
 
@@ -204,6 +272,7 @@ class WorldContext:
             return {
                 "tracked_players": len(self._players),
                 "tribe_bases": len(self._tribe_bases),
+                "tracked_dino_events": len(self._dino_events),
                 "players": [
                     {
                         "player_id": p.player_id[:8] + "...",

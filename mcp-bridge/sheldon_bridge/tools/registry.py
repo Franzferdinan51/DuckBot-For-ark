@@ -170,6 +170,8 @@ class ToolRegistry:
                     "census_*",
                     "get_all_*",
                     "get_player_*",
+                    "get_players_*",
+                    "get_dinos_*",
                     "get_tribe_*",
                     "spawn_*",
                     "give_*",

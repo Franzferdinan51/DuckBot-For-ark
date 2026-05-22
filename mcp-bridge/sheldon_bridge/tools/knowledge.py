@@ -17,6 +17,7 @@ from typing import Any
 from rapidfuzz import fuzz, process
 
 from sheldon_bridge.tools.registry import tool
+from sheldon_bridge.world_context import get_world_context
 
 logger = logging.getLogger(__name__)
 
@@ -243,6 +244,100 @@ def get_server_status(ctx: dict | None = None) -> dict[str, Any]:
         "status": "online",
         "message": "Server status is not yet available (game mod not connected). "
         "This will show live data once the in-game mod is installed.",
+    }
+
+
+@tool(tier="admin", description="Get tracked players within a radius of a world position")
+async def get_players_in_radius(
+    x: float,
+    y: float,
+    z: float,
+    radius: float = 1000.0,
+    tribe_id: str = "",
+) -> dict[str, Any]:
+    """Find tracked players near a world position.
+
+    Args:
+        x: World X coordinate in ARK units.
+        y: World Y coordinate in ARK units.
+        z: World Z coordinate in ARK units.
+        radius: Search radius in ARK units.
+        tribe_id: Optional tribe filter.
+    """
+    world = get_world_context()
+    players = await world.get_players_in_radius(
+        {"x": x, "y": y, "z": z},
+        radius,
+        tribe_id=tribe_id or None,
+    )
+    return {
+        "count": len(players),
+        "players": [
+            {
+                "player_id": player.player_id,
+                "display_name": player.display_name,
+                "tribe_id": player.tribe_id,
+                "position": player.position,
+                "facing_yaw": player.facing_yaw,
+            }
+            for player in players
+        ],
+    }
+
+
+@tool(tier="admin", description="Get tracked players near a tribe base")
+async def get_players_near_tribe_base(tribe_id: str) -> dict[str, Any]:
+    """Get tracked players inside a tribe base radius.
+
+    Args:
+        tribe_id: Tribe identifier whose base should be queried.
+    """
+    world = get_world_context()
+    base = await world.get_tribe_base(tribe_id)
+    if not base:
+        return {"found": False, "message": f"No base is tracked for tribe '{tribe_id}'."}
+
+    players = await world.get_players_near_tribe_base(tribe_id)
+    return {
+        "found": True,
+        "tribe_id": tribe_id,
+        "base": {"position": base.position, "radius": base.radius, "name": base.tribe_name},
+        "count": len(players),
+        "players": [
+            {
+                "player_id": player.player_id,
+                "display_name": player.display_name,
+                "tribe_id": player.tribe_id,
+                "position": player.position,
+            }
+            for player in players
+        ],
+    }
+
+
+@tool(tier="admin", description="Get recent dino events near a tribe base")
+async def get_dinos_near_tribe_base(
+    tribe_id: str,
+    species_filter: list[str] | None = None,
+) -> dict[str, Any]:
+    """Get recent dino sightings or events near a tribe base.
+
+    Args:
+        tribe_id: Tribe identifier whose base should be queried.
+        species_filter: Optional list of species names to keep.
+    """
+    world = get_world_context()
+    base = await world.get_tribe_base(tribe_id)
+    if not base:
+        return {"found": False, "message": f"No base is tracked for tribe '{tribe_id}'."}
+
+    dinos = await world.get_dinos_near_tribe_base(tribe_id, species_filter=species_filter)
+    return {
+        "found": True,
+        "tribe_id": tribe_id,
+        "base": {"position": base.position, "radius": base.radius, "name": base.tribe_name},
+        "count": len(dinos),
+        "dinos": dinos,
     }
 
 
