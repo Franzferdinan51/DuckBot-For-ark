@@ -36,6 +36,7 @@ class QueuedCommand:
     payload: dict = field(default_factory=dict)
     callback_id: str | None = None  # for async responses
     enqueued_at: float = 0.0
+    scheduled_delay: float = 0.0  # seconds to wait before executing (for timed sequences)
 
 
 class CommandQueue:
@@ -130,7 +131,8 @@ class DuckBotHandler:
 
         if action == "console_command":
             cmd_str = command.get("command", "")
-            return await self._queue_console_command(cmd_str)
+            delay = command.get("scheduled_delay", 0.0)
+            return await self._queue_console_command(cmd_str, scheduled_delay=delay)
 
         elif action == "spawn_dino":
             return await self._queue_spawn_dino(command)
@@ -151,11 +153,24 @@ class DuckBotHandler:
             logger.warning(f"Unknown game action: {action}")
             return {"success": False, "error": f"Unknown action: {action}"}
 
-    async def _queue_console_command(self, cmd_str: str) -> dict:
-        """Queue a raw console command for the plugin to execute."""
-        cmd = QueuedCommand(action="console_command", command=cmd_str, payload={"raw": cmd_str})
+    async def _queue_console_command(self, cmd_str: str, scheduled_delay: float = 0.0) -> dict:
+        """Queue a raw console command for the plugin to execute.
+
+        Args:
+            cmd_str: The console command string.
+            scheduled_delay: Seconds to wait before executing (for timed sequences).
+        """
+        payload = {"raw": cmd_str}
+        if scheduled_delay > 0:
+            payload["scheduled_delay"] = scheduled_delay
+        cmd = QueuedCommand(
+            action="console_command",
+            command=cmd_str,
+            payload=payload,
+            scheduled_delay=scheduled_delay,
+        )
         await self._queue.enqueue(cmd)
-        return self._make_result(cmd.id, f"Command queued: {cmd_str}")
+        return self._make_result(cmd.id, f"Command queued (delay={scheduled_delay}s): {cmd_str}")
 
     async def _queue_spawn_dino(self, data: dict) -> dict:
         """Queue a dino spawn command."""
