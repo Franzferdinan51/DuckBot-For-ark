@@ -14,9 +14,11 @@
     <ClInclude Include="Includes\nlohmann\json.hpp" />
     <ClInclude Include="Includes\json.hpp" />
     <ClInclude Include="src\Plugin.h" />
+    <ClInclude Include="src\MCPBridge.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Plugin.cpp" />
+    <ClCompile Include="src\MCPBridge.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Configs\PluginInfo.json" />
