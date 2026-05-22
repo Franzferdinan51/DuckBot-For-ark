@@ -34,13 +34,14 @@ class LLMResponse:
 class LLMConfig:
     """Configuration for the LLM provider."""
 
-    provider: str  # "anthropic", "openai", "gemini", "openrouter"
-    model: str  # e.g., "claude-sonnet-4-20250514", "gpt-4o"
-    api_key: str
+    provider: str  # "anthropic", "openai", "gemini", "openrouter", "lmstudio", "minimax", "ollama"
+    model: str  # e.g., "claude-sonnet-4-20250514", "gpt-4o", "local-model"
+    api_key: str  # env var name or actual key; "local" for local servers without auth
     max_tokens: int = 4096
     temperature: float = 0.7
     timeout: int = 60
     num_retries: int = 2
+    api_base: str | None = None  # custom endpoint (e.g. http://localhost:1234 for lmstudio)
 
     @property
     def litellm_model(self) -> str:
@@ -51,6 +52,9 @@ class LLMConfig:
             "openai": "openai/",
             "gemini": "gemini/",
             "openrouter": "openrouter/",
+            "lmstudio": "lmstudio/",  # local LLM server (runs on localhost)
+            "minimax": "minimax/",    # MiniMax AI
+            "ollama": "ollama/",       # local Ollama server
         }
         prefix = prefix_map.get(self.provider, "")
 
@@ -67,6 +71,9 @@ class LLMConfig:
             "openai": "OPENAI_API_KEY",
             "gemini": "GOOGLE_API_KEY",
             "openrouter": "OPENROUTER_API_KEY",
+            "lmstudio": "LMSTUDIO_API_KEY",    # No env var needed for local server
+            "minimax": "MINIMAX_API_KEY",
+            "ollama": "OLLAMA_API_KEY",          # No env var needed for local server
         }
         return env_map.get(self.provider, "ANTHROPIC_API_KEY")
 
@@ -106,6 +113,10 @@ class LLMProvider:
             "num_retries": self.config.num_retries,
             "api_key": self.config.api_key,
         }
+
+        # Custom endpoint for local LLM servers (LM Studio, Ollama, etc.)
+        if self.config.api_base:
+            kwargs["api_base"] = self.config.api_base
 
         if tools:
             kwargs["tools"] = tools

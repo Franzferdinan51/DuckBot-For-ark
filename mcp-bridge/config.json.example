@@ -1,8 +1,13 @@
 {
   "llm": {
-    "provider": "openrouter",
+    "provider": "openrouter",  // openrouter, anthropic, openai, gemini, lmstudio, minimax, ollama
     "model": "anthropic/claude-3.5-sonnet",
-    "api_key": "YOUR-API-KEY-HERE"
+    "api_key": "YOUR-API-KEY-HERE",
+    // For lmstudio/ollama (local), api_key can be "local" or any value:
+    // "provider": "lmstudio",
+    // "model": "local-model",  // model name loaded in LM Studio
+    // "api_key": "local",
+    // "api_base": "http://localhost:1234"  // LM Studio default port
   },
   "auth": {
     "shared_secret": "change-this-to-a-random-secret-at-least-16-chars"
