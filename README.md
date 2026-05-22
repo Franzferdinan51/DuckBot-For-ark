@@ -1,254 +1,110 @@
 # DuckBot AI for ARK
 
-**Fork of [sheldon-ai-for-ark](https://github.com/ArkAscendedAI/sheldon-ai-for-ark) — converted to ServerAPI C++ for ARK Survival Ascended.**
+DuckBot AI for ARK is an AI-assisted control stack for **ARK: Survival Ascended**. It combines a **ServerAPI C++ plugin** with a **Python bridge** that talks to an LLM and can answer ARK questions, enforce tiered permissions, and queue in-game actions.
 
-An AI-powered in-game assistant for **ARK: Survival Ascended** where a large language model controls tribe management, dino operations, economy, moderation, and server events through natural language.
+This repo is a practical fork of the SheldonAI concept. Some Python package names still use `sheldon_bridge`, but the active runtime surfaces here are DuckBot-branded.
 
-> **"DuckBot, enable wild dino alerts for my tribe"**
-> **"What's the status of my tribe's dinos?"**
-> **"Claim the VIP kit"**
+## What ships today
 
-![Status](https://img.shields.io/badge/status-converting-orange)
-![License](https://img.shields.io/badge/license-MIT-blue)
+- `plugin/`: ServerAPI plugin for ASA, built in Visual Studio.
+- `mcp-bridge/`: Python bridge with WebSocket server, tool registry, auth, sessions, metrics, audit logging, and LLM provider support.
+- `mod/`: DevKit assets for an in-game UI path and map extension content.
+- `data/`: bundled ARK knowledge data used by the bridge.
 
----
+The bridge and plugin are the primary working path. The `mod/` directory is useful source material, but the repo is not just a Blueprint mod.
 
 ## Architecture
 
-```
-DuckBot Plugin (C++/ServerAPI)
-    │
-    ├── Hooks into AShooterGameMode + AShooterPlayerController
-    ├── 39 chat commands → parse user intent
-    ├── Sends game events to MCP bridge (tame, born, death, level up, chat)
-    │
-    ▼
-DuckBot MCP Bridge (Python) ← based on sheldon-mcp-bridge
-    │
-    ├── WebSocket server (plugin connects as client)
-    ├── Permission enforcement (role tiers: user/vip/mod/admin)
-    ├── Tool registry (spawn, teleport, kit, economy, tribe ops)
-    ├── Agentic loop → LLM provider
-    │
-    ▼
-LLM Provider (Anthropic / OpenAI / Gemini / OpenRouter)
+```text
+ARK Server
+  -> DuckBot plugin (C++ / AsaApi / ServerAPI)
+  -> WebSocket connection
+  -> DuckBot bridge (Python)
+  -> LLM provider via LiteLLM
 ```
 
-The **LLM is the brain** — DuckBot plugin sends structured events, the MCP bridge runs an agent loop that decides what to do and executes via tools. Players interact via `/` commands or natural language through the bridge.
+The plugin captures chat commands and game events, then forwards structured messages to the bridge. The bridge authenticates the connection, creates a per-player session, exposes only tier-appropriate tools to the model, and returns replies or queued game actions.
 
----
+## Current feature set
 
-## How It Works
+- 39 in-game chat commands in `plugin/src/Plugin.cpp`
+- 6 registered gameplay hooks for join, logout, tame, birth, death, and level-up
+- permission tiers with code-enforced tool partitioning (`player`, `admin`, `superadmin`)
+- knowledge tools for dinos, items, engrams, and server info
+- action tools for spawn, teleport, give item, broadcast, time control, and raw console commands
+- session persistence, rate limiting, audit logging, and optional semantic cache warmup
+- provider support for OpenRouter, Anthropic, OpenAI, Gemini, LM Studio, MiniMax, and Ollama
 
-1. **DuckBot plugin** intercepts game events via ServerAPI hooks and sends them to the bridge via WebSocket
-2. **MCP bridge** maintains player state, enforces permissions, and runs an agent loop
-3. **LLM** processes player requests and decides which tools to call
-4. **Tools** execute game actions (spawn, teleport, give items, etc.) on behalf of players within their permission tier
+## Repository layout
 
-This is a direct port/re-creation of the [ArkAscendedAI/sheldon-ai-for-ark](https://github.com/ArkAscendedAI/sheldon-ai-for-ark) concept from Blueprint/UE5 to **ServerAPI C++**, keeping the same AI bridge pattern but using AsaApi instead of DevKit.
+```text
+plugin/        Visual Studio solution and C++ source
+mcp-bridge/    Python package, tests, Dockerfile, config example
+mod/           ASA DevKit assets (.uasset, .uplugin)
+data/          ARK vanilla data and data build script
+docs/          architecture, permissions, and project notes
+examples/      sample config and prompt files
+```
 
----
+## Quick start: bridge
 
-## Components
-
-| Component | Description | Technology |
-|-----------|-------------|------------|
-| **[DuckBot Plugin](plugin/)** | ServerAPI C++ mod. Hooks, 39 commands, MCP WebSocket client, game event emission. | C++ / AsaApi / ServerAPI |
-| **[MCP Bridge](mcp-bridge/)** | Python AI agent server. Permission enforcement, tool registry, LLM integration. | Python 3.12+ |
-| **[Blueprint Mod](mod/)** | (Future) In-game F8 UI for natural language input | ASA DevKit (UE5) |
-
----
-
-## Building
-
-1. Install Visual Studio 2022 with C++ desktop development workload
-2. Clone ARK ServerAPI SDK as a **sibling directory**:
-   ```
-   cd "C:/Users/franz/OneDrive/Desktop/ARK Mod"
-   git clone https://github.com/ArkServerApi/AsaApi.git
-   ```
-   Expected structure:
-   ```
-   ARK Mod/
-   ├── duckbot-ai-for-ark/plugin/      ← your plugin
-   │   └── DuckBot.vcxproj
-   └── AsaApi/                         ← sibling SDK
-       └── AsaApi/Core/Public/API/...
-   ```
-3. Open `plugin/DuckBot.sln` in Visual Studio 2022
-4. Build → Build Solution (Release x64)
-5. Output: `plugin/Binaries/Release/DuckBot.dll`
-6. Copy `DuckBot.dll` to server's `ArkApi/Plugins/DuckBot/` directory
-
----
-
-## MCP Bridge (Python)
-
-The MCP bridge is based on [sheldon-mcp-bridge](https://github.com/ArkAscendedAI/sheldon-ai-for-ark/tree/main/mcp-bridge):
-
-```bash
+```powershell
 cd mcp-bridge
-pip install -e .
-sheldon-bridge run
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+copy config.json.example config.json
+duckbot-bridge secret
+duckbot-bridge run --config config.json
 ```
 
-### Configuration
+Useful commands:
 
-```json
-{
-  "llm": {
-    "provider": "openrouter",
-    "api_key": "your-api-key"
-  },
-  "auth": {
-    "shared_secret": "your-secret"
-  },
-  "server": {
-    "host": "0.0.0.0",
-    "port": 8443
-  }
-}
+- `duckbot-bridge run --config config.json`: start the WebSocket bridge
+- `duckbot-bridge serve --config config.json --port 8080`: lightweight HTTP health and discovery surface
+- `pytest`: run the Python test suite
+- `ruff check .`
+- `mypy sheldon_bridge`
+
+Notes:
+
+- `config.json.example` contains comments, so treat it as a template, not strict JSON.
+- API keys can come from `config.json` or a local `.env` file loaded by the CLI.
+
+## Quick start: plugin
+
+1. Install Visual Studio 2022 with C++ desktop development tools.
+2. Clone `AsaApi` as a sibling directory to this repo.
+3. Open [plugin/DuckBot.sln](plugin/DuckBot.sln).
+4. Build `Release x64`.
+5. Copy `plugin/Binaries/Release/DuckBot.dll` into `ArkApi/Plugins/DuckBot/` on the server.
+
+See [plugin/README.md](plugin/README.md) and [MOD_BUILD_GUIDE.md](MOD_BUILD_GUIDE.md) for the expected filesystem layout and deployment details.
+
+## Testing
+
+The bridge test suite lives in `mcp-bridge/tests/`.
+
+- `test_permissions.py` covers the core trust boundary: tool visibility, validation, limits, and session isolation.
+- `test_integration.py` is a real end-to-end bridge test and requires `ANTHROPIC_API_KEY`.
+
+Run locally:
+
+```powershell
+cd mcp-bridge
+pytest
+pytest -k integration
 ```
 
-### LLM Providers
+## Configuration and security
 
-| Provider | Notes |
-|----------|-------|
-| **OpenRouter** | 200+ models, pay-per-token |
-| **Anthropic** | claude-3-5-sonnet, claude-3-haiku |
-| **OpenAI** | GPT-4o, GPT-4 Turbo |
-| **Google** | Gemini 2.0 Flash/Pro |
+- Bridge config template: `mcp-bridge/config.json.example`
+- Example game settings: `examples/gameusersettings.example.ini`
+- Security policy: [SECURITY.md](SECURITY.md)
+- Permission model notes: [docs/PERMISSIONS.md](docs/PERMISSIONS.md)
 
-### Permission Tiers
+Do not commit live API keys, auth secrets, server-specific config, or logs.
 
-| Tier | Access |
-|------|--------|
-| `user` | Chat, tribe info, dino status, kits, economy |
-| `vip` | Extended kits, marker management |
-| `mod` | Kick, mute, slay, warp management |
-| `admin` | Ban, unban, drop party, event management, AI brain control |
+## Project status
 
----
-
-## Commands (39 total)
-
-All commands prefixed with `/`:
-
-| Command | Description | Permission |
-|---------|-------------|------------|
-| `/tribe` | Tribe overview: members, tames, alerts | use |
-| `/tdinos` | List tribe's active tames | use |
-| `/tribealert` | Wild dino alerts near tribe | use |
-| `/dinos` | Show tracked dinos | use |
-| `/kits` | Show available kits | use |
-| `/kit [name]` | Claim a kit (with cooldown) | use |
-| `/bal` | Show your balance | use |
-| `/pay [player] [amount]` | Pay another player | use |
-| `/daily` | Claim daily reward (24h) | use |
-| `/work` | Claim work reward (5min cooldown) | use |
-| `/home` | Teleport to saved home position | use |
-| `/sethome` | Save home position | use |
-| `/tpr [player]` | Send teleport request | use |
-| `/tpaccept` | Accept teleport request | use |
-| `/warp [name]` | Teleport to warp | use |
-| `/setwarp [name]` | Create warp | mod |
-| `/marker add\|list\|remove` | Manage tribe markers | use |
-| `/gridmap` | Show grid map with all waypoints | use |
-| `/kick [player]` | Kick player | mod |
-| `/ban [player]` | Ban player | admin |
-| `/unban [player]` | Unban player | admin |
-| `/mute [player]` | Mute player | mod |
-| `/unmute [player]` | Unmute player | mod |
-| `/slay [player]` | Slay player's dinos | mod |
-| `/slayplayer [player]` | Slay player | mod |
-| `/tphere [player]` | Teleport player to you | mod |
-| `/feed` | Auto-feed your tribe dinos | use |
-| `/coinflip [wager]` | Flip a coin (wager from balance) | use |
-| `/breeds` | Recent breed alerts and mutations | use |
-| `/kibble [species]` | Kibble recipe guide (40+ species) | use |
-| `/aibrain` | AI brain status and MCP bridge state | use |
-| `/aireset` | Reset AI context | use |
-| `/event start\|stop\|list` | Manage events | admin |
-| `/events` | Show active events | use |
-| `/drop [count] [radius]` | Host drop party | admin |
-| `/save` | Save all data | admin |
-| `/reload` | Reload config | admin |
-| `/status` | Plugin status and stats | admin |
-| `/help` | Show all commands | use |
-
----
-
-## Hooks Used (6 registered)
-
-| Hook | Purpose |
-|------|---------|
-| `AShooterGameMode.HandleNewPlayer_Implementation` | Player join → init player data + MCP event |
-| `AShooterGameMode.HandlePlayerLogout_Implementation` | Player leave → save data + MCP event |
-| `AShooterGameMode.OnDinoTamed_Implementation` | Dino tame → MCP event |
-| `AShooterGameMode.OnBabyBorn_Implementation` | Breeding → MCP event |
-| `AShooterGameMode.OnDinoDied_Implementation` | Dino death → MCP event |
-| `AShooterPlayerController.HandlePlayerLevelUp_Implementation` | Level up → update + MCP event |
-
----
-
-## Configuration
-
-Config file: `ArkApi/Data/DuckBot/config.json`
-
-```json
-{
-  "MCP": {
-    "host": "localhost",
-    "port": 8443,
-    "auth_token": "your-secret"
-  },
-  "Economy": {
-    "daily_reward": 100,
-    "work_reward": 15,
-    "work_cooldown": 300
-  },
-  "Teleport": {
-    "cooldown": 30
-  },
-  "Kits": {
-    "default_cooldown": 3600
-  }
-}
-```
-
----
-
-## Status
-
-**DuckBot plugin + MCP bridge are complete and wired together.**
-
-- [x] 39 chat commands implemented (C++ ServerAPI plugin)
-- [x] 6 game hooks registered (join/leave/tame/born/died/levelup)
-- [x] Raw Winsock2 WebSocket CLIENT with auto-reconnect (plugin connects to bridge)
-- [x] Command queue system (plugin polls bridge for pending commands)
-- [x] MCP bridge Python server (asyncio WebSocket server, based on sheldon-mcp-bridge)
-- [x] DuckBotSession wired in — ARK game event context active
-- [x] DuckBotHandler — command queue (spawn_dino, teleport, give_item, slay, feed_tribe, console_command)
-- [x] LLM providers: Anthropic, OpenAI, Google, OpenRouter, LM Studio, Ollama, MiniMax
-- [x] Tier-based tool registry with permission enforcement
-- [x] Metrics: LLM usage, tool latencies, per-player engagement, bridge health
-- [x] Audit logging: auth attempts, tool calls, rate limits, player messages
-- [x] Local LLM support (LM Studio/Ollama on custom api_base)
-- [x] Critical/high severity bugs fixed (13 bugs across C++ plugin and Python bridge)
-- [ ] Remaining 31 medium/low bugs (tracked for follow-up)
-- [ ] Blueprint mod / natural language UI (future work)
-
----
-
-## Reference Sources
-
-- **[ArkAscendedAI/sheldon-ai-for-ark](https://github.com/ArkAscendedAI/sheldon-ai-for-ark)** — original Blueprint/UE5 implementation
-- **[Franzferdinan51/sheldon-ai-for-ark](https://github.com/Franzferdinan51/sheldon-ai-for-ark)** — fork with MCP bridge Python code
-- **[Franzferdinan51/rust-duckbot-mod](https://github.com/Franzferdinan51/rust-duckbot-mod)** — Rust/Oxide reference for RustDuckBot AI pattern
-- **[ArkServerApi/AsaApi](https://github.com/ArkServerApi/AsaApi)** — ServerAPI SDK for ARK Survival Ascended
-
----
-
-## License
-
-[MIT](LICENSE)
+The repo is past the concept stage: the Python bridge, plugin command surface, and bridge-to-game command queue are implemented. The remaining work is mostly iteration and hardening, not initial scaffolding. The codebase still carries some Sheldon-era names in docs and Python modules; that is naming debt, not a separate product.
