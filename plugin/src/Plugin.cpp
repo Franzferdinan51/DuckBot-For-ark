@@ -799,10 +799,10 @@ ADMIN: /reload, /save, /status, /event
                 return;
             }
 
-            // TODO: Teleport player to (home_x, home_y, home_z)
-            // Using AsaApi::GetApiUtils().TeleportToPlayer(pc, ...)
+            FVector home_pos(pData->home_x, pData->home_y, pData->home_z);
+            pc->SetActorLocation(home_pos, false, nullptr, false);
             std::ostringstream oss;
-            oss << "[DuckBot] Teleporting to home... (" << pData->home_x << ", " << pData->home_y << ", " << pData->home_z << ")";
+            oss << "[DuckBot] Teleported to home (" << static_cast<int>(pData->home_x) << ", " << static_cast<int>(pData->home_y) << ", " << static_cast<int>(pData->home_z) << ")";
             Plugin::Get()->SendReply(pc, oss.str());
         }
 
@@ -858,9 +858,16 @@ ADMIN: /reload, /save, /status, /event
 
             pending_tpr_.erase(requester);
 
-            // TODO: Teleport requester to target's position
-            // AsaApi::GetApiUtils().TeleportPlayer(requester, target_pos)
-            Plugin::Get()->SendReply(pc, "[DuckBot] Teleport accepted! Teleporting...");
+            // Find requester's player controller via ApiUtils
+            auto* requester_pc = AsaApi::GetApiUtils().FindPlayerBySteamId(requester);
+            if (!requester_pc) {
+                Plugin::Get()->SendReply(pc, "[DuckBot] Could not find requester player.");
+                return;
+            }
+
+            FVector requester_pos = requester_pc->GetActorLocation();
+            pc->SetActorLocation(requester_pos, false, nullptr, false);
+            Plugin::Get()->SendReply(pc, "[DuckBot] Teleport accepted! You have been teleported to the requester.");
         }
 
         void OnWarp(AShooterPlayerController* pc, FString* cmd, bool) {
@@ -878,11 +885,10 @@ ADMIN: /reload, /save, /status, /event
                 return;
             }
 
-            // TODO: Teleport to warp position
-            // FVector pos{it->second.x, it->second.y, it->second.z};
-            // AsaApi::GetApiUtils().TeleportPlayerToLocation(pc, pos);
+            FVector warp_pos(it->second.x, it->second.y, it->second.z);
+            pc->SetActorLocation(warp_pos, false, nullptr, false);
             std::ostringstream oss;
-            oss << "[DuckBot] Warping to " << warp_name << "...";
+            oss << "[DuckBot] Warped to " << warp_name << " (" << static_cast<int>(it->second.x) << ", " << static_cast<int>(it->second.y) << ", " << static_cast<int>(it->second.z) << ")";
             Plugin::Get()->SendReply(pc, oss.str());
         }
 
@@ -1142,9 +1148,8 @@ ADMIN: /reload, /save, /status, /event
                 return;
             }
 
-            // TODO: Teleport target to pc's position
             FVector pos = pc->GetActorLocation();
-            // AsaApi::GetApiUtils().TeleportPlayerToLocation(target, pos);
+            target->SetActorLocation(pos, false, nullptr, false);
             Plugin::Get()->SendReply(pc, "[DuckBot] " + target_name + " teleported to you.");
         }
 
