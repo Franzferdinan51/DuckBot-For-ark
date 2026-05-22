@@ -78,6 +78,16 @@ class GameEvent:
             parts.append(f"{key}={value}")
         return ", ".join(parts)
 
+    def to_dict(self) -> dict:
+        """Serialize to dict for REST API /events endpoint."""
+        return {
+            "event_type": self.event_type,
+            "data": self.data,
+            "timestamp": self.timestamp,
+            "steam_id": self.steam_id,
+            "player_name": self.player_name,
+        }
+
 
 class DuckBotSession:
     """Session wrapper that adds ARK game event context to a sheldon-bridge Session.

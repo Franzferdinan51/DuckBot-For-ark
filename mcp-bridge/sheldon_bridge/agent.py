@@ -106,19 +106,17 @@ class Agent:
         # Check semantic cache first
         cache = get_cache()
         context_key = f"{tier}:{session.player.tribe_id or session.player.player_id}"
-        cached = await cache.lookup(user_message, context_key=context_key)
-        if cached:
+        cached_response, similarity = cache.lookup(user_message, context_key=context_key)
+        if cached_response:
             # Stream cached response token by token
-            words = cached.response.split(" ")
-            partial = ""
+            words = cached_response.split(" ")
             for word in words:
-                partial += word + " "
                 await websocket_send(json.dumps({"type": "stream_token", "content": word + " "}))
                 await asyncio.sleep(0.02)  # natural typing pace
-            session.add_assistant_message({"role": "assistant", "content": cached.response})
+            session.add_assistant_message({"role": "assistant", "content": cached_response})
             session.track_usage(0, 0, 0)
             return AgentResult(
-                response_text=cached.response,
+                response_text=cached_response,
                 tool_calls_made=0, iterations=0,
                 total_input_tokens=0, total_output_tokens=0,
                 total_cost=0.0, duration_ms=(time.time() - start_time) * 1000,
@@ -158,7 +156,7 @@ class Agent:
 
         # Cache the complete response
         if full_response:
-            await cache.store(user_message, full_response, context_key=context_key)
+            cache.store(user_message, full_response, context_key=context_key)
 
         # Track usage (estimate tokens from response length)
         output_tokens = len(full_response) // 4

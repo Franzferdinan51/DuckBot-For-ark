@@ -77,7 +77,7 @@ def create_rest_app(config: BridgeConfig, game_server_ref) -> web.Application:
         health = metrics.get_health()
 
         return web.json_response({
-            "server_name": config.ark.get("map", "Unknown"),
+            "server_name": config.personality_name,
             "uptime_seconds": health.get("bridge", {}).get("uptime_seconds", 0),
             "plugin_connected": health.get("bridge", {}).get("plugin_connected", False),
             "active_players": health.get("bridge", {}).get("active_players", 0),
@@ -233,7 +233,7 @@ def create_rest_app(config: BridgeConfig, game_server_ref) -> web.Application:
                 "name": skill.meta.name,
                 "description": skill.meta.description,
                 "auto_triggers": skill.meta.auto_trigger_on or [],
-                "tier": skill.meta.tier,
+                "tier": skill.meta.tier_required,
             })
         return web.json_response({"skills": skills, "count": len(skills)})
 

@@ -144,10 +144,15 @@ class SemanticCache:
         return " | ".join(parts)
 
     def lookup(
-        self, query: str, context: Optional[dict] = None
+        self, query: str, context: Optional[dict] = None, context_key: Optional[str] = None
     ) -> tuple[Optional[str], float]:
         """
         Look up a semantically similar cached response.
+
+        Args:
+            query: The query text to search for.
+            context: Optional context dict for context-dependent queries.
+            context_key: Optional string key (converted to context dict internally).
 
         Returns:
             (cached_response, similarity_score) if a match is found above threshold.
@@ -158,6 +163,10 @@ class SemanticCache:
         if len(self._entries) == 0:
             self.stats.misses += 1
             return None, 0.0
+
+        # Build context dict from context_key if provided
+        if context_key and context is None:
+            context = {"context_key": context_key}
 
         cache_key = self._make_key(query, context)
         query_emb = self._embed(cache_key)
@@ -197,13 +206,27 @@ class SemanticCache:
         query: str,
         response: str,
         context: Optional[dict] = None,
+        context_key: Optional[str] = None,
         ttl: Optional[float] = None,
         category: str = "general",
     ):
-        """Store a query-response pair in the cache."""
+        """Store a query-response pair in the cache.
+
+        Args:
+            query: The original query text.
+            response: The LLM response to cache.
+            context: Optional context dict.
+            context_key: Optional string key (converted to context dict internally).
+            ttl: Time to live in seconds.
+            category: Cache category for stats.
+        """
         # Evict oldest if at capacity
         if len(self._entries) >= self.max_entries:
             self._evict_oldest()
+
+        # Build context dict from context_key if provided
+        if context_key and context is None:
+            context = {"context_key": context_key}
 
         cache_key = self._make_key(query, context)
         emb = self._embed(cache_key)
@@ -296,3 +319,39 @@ class SemanticCache:
             logger.info(f"Cache loaded from {path} ({self.size} entries)")
         except Exception as e:
             logger.warning(f"Failed to load cache from {path}: {e}")
+
+
+# ─── Singleton Management ─────────────────────────────────────────────────
+
+_cache: SemanticCache | None = None
+
+
+def init_cache(
+    persist_path: str = "data/cache/semantic_cache.pkl",
+    threshold: float = 0.90,
+) -> SemanticCache:
+    """Initialize the global semantic cache singleton.
+
+    Call this once at bridge startup. Returns the cache instance.
+    Subsequent calls return the existing instance.
+    """
+    global _cache
+    if _cache is None:
+        _cache = SemanticCache(
+            persist_path=persist_path,
+            threshold=threshold,
+        )
+        logger.info(f"Semantic cache initialized (threshold={threshold})")
+    return _cache
+
+
+def get_cache() -> SemanticCache:
+    """Get the global semantic cache singleton.
+
+    Raises RuntimeError if init_cache() hasn't been called yet.
+    """
+    if _cache is None:
+        raise RuntimeError(
+            "SemanticCache not initialized. Call init_cache() at startup first."
+        )
+    return _cache

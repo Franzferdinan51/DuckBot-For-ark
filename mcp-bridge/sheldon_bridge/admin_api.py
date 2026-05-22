@@ -566,26 +566,29 @@ class AdminServer:
 
         class AdminSessionCtx:
             """Lightweight session for admin AI queries — no persistence."""
-            player = AdminPlayer()
-            conversation = [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are Sheldon, an AI assistant for an ARK: Survival Ascended "
-                        "server running on DuckBot. You help server admins manage the "
-                        "server, answer questions about game mechanics, and can execute "
-                        "admin commands. Be concise and helpful."
-                    ),
-                },
-                {"role": "user", "content": query},
-            ]
-            system_prompt = ""
-            total_input_tokens = 0
-            total_output_tokens = 0
-            total_cost = 0.0
-            created_at = 0.0
-            last_active = 0.0
-            lock = asyncio.Lock()
+
+            def __init__(self):
+                self.player = AdminPlayer()
+                self.conversation = [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are Sheldon, an AI assistant for an ARK: Survival Ascended "
+                            "server running on DuckBot. You help server admins manage the "
+                            "server, answer questions about game mechanics, and can execute "
+                            "admin commands. Be concise and helpful."
+                        ),
+                    },
+                    {"role": "user", "content": query},
+                ]
+                self.system_prompt = ""
+                self.total_input_tokens = 0
+                self.total_output_tokens = 0
+                self.total_cost = 0.0
+                self.created_at = 0.0
+                self.last_active = 0.0
+                self.lock = asyncio.Lock()
+                self._tool_call_count = 0
 
             def get_messages(self):
                 return self.conversation
@@ -597,6 +600,15 @@ class AdminServer:
 
             def add_assistant_message(self, msg):
                 self.conversation.append(msg)
+
+            def add_user_message(self, content):
+                self.conversation.append({"role": "user", "content": content})
+
+            def add_system_prompt(self, prompt):
+                self.system_prompt = prompt
+
+            def truncate_to_budget(self, max_tokens, reserve=4096):
+                pass  # Admin queries are short-lived, no truncation needed
 
         session_ctx = AdminSessionCtx()
         agent = Agent(
@@ -639,27 +651,33 @@ class AdminServer:
             display_name = "Admin"
             tier = "superadmin"
             tribe_id = ""
-            position = {}
-            facing_yaw = 0.0
+            position: dict = {}
+            facing_yaw: float = 0.0
+            steam_id: str = ""
+
+            def update_position(self, pos, yaw=0.0):
+                pass
 
         class AdminSessionCtx:
-            player = AdminPlayer()
-            conversation = [
-                {"role": "system", "content": (
-                    "You are Sheldon, an AI assistant for an ARK: Survival Ascended "
-                    "server running on DuckBot. You help server admins manage the "
-                    "server, answer questions about game mechanics, and can execute "
-                    "admin commands. Be concise and helpful."
-                )},
-                {"role": "user", "content": query},
-            ]
-            system_prompt = ""
-            total_input_tokens = 0
-            total_output_tokens = 0
-            total_cost = 0.0
-            created_at = 0.0
-            last_active = 0.0
-            lock = asyncio.Lock()
+            def __init__(self):
+                self.player = AdminPlayer()
+                self.conversation = [
+                    {"role": "system", "content": (
+                        "You are Sheldon, an AI assistant for an ARK: Survival Ascended "
+                        "server running on DuckBot. You help server admins manage the "
+                        "server, answer questions about game mechanics, and can execute "
+                        "admin commands. Be concise and helpful."
+                    )},
+                    {"role": "user", "content": query},
+                ]
+                self.system_prompt = ""
+                self.total_input_tokens = 0
+                self.total_output_tokens = 0
+                self.total_cost = 0.0
+                self.created_at = 0.0
+                self.last_active = 0.0
+                self.lock = asyncio.Lock()
+                self._tool_call_count = 0
 
             def get_messages(self):
                 return self.conversation
@@ -671,6 +689,15 @@ class AdminServer:
 
             def add_assistant_message(self, msg):
                 self.conversation.append(msg)
+
+            def add_user_message(self, content):
+                self.conversation.append({"role": "user", "content": content})
+
+            def add_system_prompt(self, prompt):
+                self.system_prompt = prompt
+
+            def truncate_to_budget(self, max_tokens, reserve=4096):
+                pass
 
         session_ctx = AdminSessionCtx()
         agent = Agent(
@@ -728,27 +755,33 @@ class AdminServer:
             display_name = "Admin"
             tier = "superadmin"
             tribe_id = ""
-            position = {}
-            facing_yaw = 0.0
+            position: dict = {}
+            facing_yaw: float = 0.0
+            steam_id: str = ""
+
+            def update_position(self, pos, yaw=0.0):
+                pass
 
         class AdminSessionCtx:
-            player = AdminPlayer()
-            conversation = [
-                {"role": "system", "content": (
-                    "You are Sheldon, an AI assistant for an ARK: Survival Ascended "
-                    "server running on DuckBot. You help server admins manage the "
-                    "server, answer questions about game mechanics, and can execute "
-                    "admin commands. Be concise and helpful."
-                )},
-                {"role": "user", "content": query},
-            ]
-            system_prompt = ""
-            total_input_tokens = 0
-            total_output_tokens = 0
-            total_cost = 0.0
-            created_at = 0.0
-            last_active = 0.0
-            lock = asyncio.Lock()
+            def __init__(self):
+                self.player = AdminPlayer()
+                self.conversation = [
+                    {"role": "system", "content": (
+                        "You are Sheldon, an AI assistant for an ARK: Survival Ascended "
+                        "server running on DuckBot. You help server admins manage the "
+                        "server, answer questions about game mechanics, and can execute "
+                        "admin commands. Be concise and helpful."
+                    )},
+                    {"role": "user", "content": query},
+                ]
+                self.system_prompt = ""
+                self.total_input_tokens = 0
+                self.total_output_tokens = 0
+                self.total_cost = 0.0
+                self.created_at = 0.0
+                self.last_active = 0.0
+                self.lock = asyncio.Lock()
+                self._tool_call_count = 0
 
             def get_messages(self):
                 return self.conversation
@@ -760,6 +793,15 @@ class AdminServer:
 
             def add_assistant_message(self, msg):
                 self.conversation.append(msg)
+
+            def add_user_message(self, content):
+                self.conversation.append({"role": "user", "content": content})
+
+            def add_system_prompt(self, prompt):
+                self.system_prompt = prompt
+
+            def truncate_to_budget(self, max_tokens, reserve=4096):
+                pass
 
         session_ctx = AdminSessionCtx()
         agent = Agent(

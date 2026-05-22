@@ -405,9 +405,10 @@ class BridgeServer:
 
         # Cache the response
         try:
-            cache = await init_cache()
+            from sheldon_bridge.cache import get_cache
+            cache = get_cache()
             ctx_key = f"{session.player.tier}:{session.player.tribe_id or session.player.player_id}"
-            await cache.store(text, full_response, context_key=ctx_key)
+            cache.store(text, full_response, context_key=ctx_key)
         except Exception:
             pass  # Non-critical
 
@@ -561,8 +562,8 @@ async def run_server(config: BridgeConfig) -> None:
         logger.info(f"Restored session: {session.player.display_name} ({player_id[:8]}...)")
 
     # Initialize semantic cache for LLM response caching
-    cache = await init_cache()
-    logger.info(f"Semantic cache ready: {cache.stats().hit_rate:.1%} hit rate")
+    cache = init_cache()
+    logger.info(f"Semantic cache ready: {cache.stats.hit_rate:.1%} hit rate")
 
     server = BridgeServer(config)
     server.sessions.set_store(store)

@@ -51,6 +51,9 @@ class BridgeConfig:
     # Agent
     max_tool_iterations: int = 25
 
+    # Runtime config (key-value store for REST API /config endpoints)
+    ark: dict = field(default_factory=dict)
+
     def get_personality_prompt(self) -> str:
         """Load the personality prompt from file or return a default."""
         if self.personality_prompt_file and Path(self.personality_prompt_file).exists():
